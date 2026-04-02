@@ -18,14 +18,15 @@ const (
 
 // CLIData is the unified representation produced by any parser and consumed by any generator.
 type CLIData struct {
-	Name          string
-	Description   string
-	BaseURL       string // REST: https://host/base, gRPC: host:port
-	Transport     Transport
-	AuthEnvVar    string
-	AuthSetup     string // Go code snippet inserted into the generated HTTP/gRPC auth block
-	HasPathParams bool
-	Commands      []CommandData
+	Name           string
+	Description    string
+	BaseURL        string // REST: https://host/base, gRPC: host:port
+	BaseURLEnvVar  string // env var that overrides BaseURL at runtime (e.g. ZULIP__BASE_URL)
+	Transport      Transport
+	AuthEnvVar     string
+	AuthSetup      string // Go code snippet inserted into the generated HTTP/gRPC auth block
+	HasPathParams  bool
+	Commands       []CommandData
 }
 
 type CommandData struct {

@@ -83,7 +83,9 @@ func ParseOpenAPI(data []byte) (*CLIData, error) {
 	}
 
 	if len(spec.Servers) > 0 {
-		cli.BaseURL = strings.TrimRight(spec.Servers[0].URL, "/")
+		rawURL := strings.TrimRight(spec.Servers[0].URL, "/")
+		cli.BaseURL = rawURL
+		cli.BaseURLEnvVar = strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(cli.Name, "_")) + "__BASE_URL"
 	}
 
 	cli.AuthEnvVar, cli.AuthSetup = authFromSchemes(spec.Components.SecuritySchemes, cli.Name)

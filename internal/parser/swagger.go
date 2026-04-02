@@ -42,11 +42,13 @@ func ParseSwagger(data []byte) (*CLIData, error) {
 		return nil, fmt.Errorf("spec has no info.title")
 	}
 
+	name := toCommandName(spec.Info.Title)
 	cli := &CLIData{
-		Name:        toCommandName(spec.Info.Title),
-		Description: firstNonEmpty(spec.Info.Description, spec.Info.Title),
-		Transport:   TransportREST,
-		BaseURL:     swagger2BaseURL(spec),
+		Name:          name,
+		Description:   firstNonEmpty(spec.Info.Description, spec.Info.Title),
+		Transport:     TransportREST,
+		BaseURL:       swagger2BaseURL(spec),
+		BaseURLEnvVar: strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(name, "_")) + "__BASE_URL",
 	}
 
 	cli.AuthEnvVar, cli.AuthSetup = authFromSchemes(spec.SecurityDefinitions, cli.Name)

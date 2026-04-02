@@ -17,14 +17,19 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"{{if .HasPathParams}}
-	"strings"{{end}}
+	"os"
+	"strings"
 )
 
-const (
-	baseURL    = "{{.BaseURL}}"
-	authEnvVar = "{{.AuthEnvVar}}"
-)
+const authEnvVar = "{{.AuthEnvVar}}"
+
+var baseURL = "{{.BaseURL}}"
+
+func init() {
+	if v := os.Getenv("{{.BaseURLEnvVar}}"); v != "" {
+		baseURL = strings.TrimRight(v, "/")
+	}
+}
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" || os.Args[1] == "help" {
@@ -52,7 +57,8 @@ func printUsage() {
 {{- range .Commands}}
 	fmt.Printf("  %-20s %s\n", "{{.Name}}", "{{safeStr .Description}}")
 {{- end}}
-	fmt.Printf("\nRequires %s environment variable.\n", authEnvVar)
+	fmt.Printf("\nAuth:    set %s\n", authEnvVar)
+	fmt.Printf("Base URL: %s (override with %s)\n", baseURL, "{{.BaseURLEnvVar}}")
 }
 
 func doRequest(method, rawURL string, body io.Reader) {
