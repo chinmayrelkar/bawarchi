@@ -99,7 +99,7 @@ func authFromSchemes(schemes map[string]oaSecurityScheme, apiName string) (envVa
 	prefix := strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(apiName, "_"))
 	envVar = prefix + "__API_KEY"
 
-	for _, s := range schemes {
+	for schemeName, s := range schemes {
 		switch s.Type {
 		case "http":
 			if strings.EqualFold(s.Scheme, "bearer") {
@@ -108,6 +108,11 @@ func authFromSchemes(schemes map[string]oaSecurityScheme, apiName string) (envVa
 		case "apiKey":
 			if s.In == "header" {
 				h := firstNonEmpty(s.Name, "Authorization")
+				if strings.EqualFold(h, "authorization") {
+					// Authorization header always needs a scheme prefix.
+					// Use the security scheme name (e.g. "GenieKey", "Bearer").
+					return envVar, fmt.Sprintf(`req.Header.Set("Authorization", %q+" "+key)`, schemeName)
+				}
 				return envVar, fmt.Sprintf(`req.Header.Set(%q, key)`, h)
 			}
 		}
