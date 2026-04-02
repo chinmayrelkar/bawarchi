@@ -52,6 +52,9 @@ func ParseSwagger(data []byte) (*CLIData, error) {
 	}
 
 	cli.AuthEnvVar, cli.AuthSetup = authFromSchemes(spec.SecurityDefinitions, cli.Name)
+	if strings.Contains(cli.AuthSetup, "base64") {
+		cli.AuthImport = `"encoding/base64"`
+	}
 
 	// Re-parse paths with Swagger 2.0 parameter handling.
 	// Swagger 2.0 and OpenAPI 3.x share the same path/operation structure

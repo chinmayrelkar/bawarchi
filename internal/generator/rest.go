@@ -18,7 +18,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
+	"strings"{{if .AuthImport}}
+	{{.AuthImport}}{{end}}
 )
 
 const authEnvVar = "{{.AuthEnvVar}}"
@@ -57,7 +58,7 @@ func printUsage() {
 {{- range .Commands}}
 	fmt.Printf("  %-20s %s\n", "{{.Name}}", "{{safeStr .Description}}")
 {{- end}}
-	fmt.Printf("\nAuth:    set %s\n", authEnvVar)
+	fmt.Printf("\nAuth:    set %s{{if .AuthImport}} (format: email:apikey){{end}}\n", authEnvVar)
 	fmt.Printf("Base URL: %s (override with %s)\n", baseURL, "{{.BaseURLEnvVar}}")
 }
 

@@ -89,6 +89,9 @@ func ParseOpenAPI(data []byte) (*CLIData, error) {
 	}
 
 	cli.AuthEnvVar, cli.AuthSetup = authFromSchemes(spec.Components.SecuritySchemes, cli.Name)
+	if strings.Contains(cli.AuthSetup, "base64") {
+		cli.AuthImport = `"encoding/base64"`
+	}
 	buildCommandsFromOps(cli, spec.Paths, func(p oaParameter) (in, typ string) {
 		return p.In, p.Schema.Type
 	})
@@ -104,6 +107,12 @@ func authFromSchemes(schemes map[string]oaSecurityScheme, apiName string) (envVa
 	for schemeName, s := range schemes {
 		switch s.Type {
 		case "http":
+			if strings.EqualFold(s.Scheme, "basic") {
+				// key should be "email:apikey" — base64 encoded for Basic auth
+				// Caller must set AuthImport = "encoding/base64"
+				return prefix + "__CREDENTIALS",
+					`req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(key)))`
+			}
 			if strings.EqualFold(s.Scheme, "bearer") {
 				return prefix + "__TOKEN", `req.Header.Set("Authorization", "Bearer "+key)`
 			}

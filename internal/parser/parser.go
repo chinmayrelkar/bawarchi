@@ -25,6 +25,7 @@ type CLIData struct {
 	Transport      Transport
 	AuthEnvVar     string
 	AuthSetup      string // Go code snippet inserted into the generated HTTP/gRPC auth block
+	AuthImport     string // extra import needed by AuthSetup (e.g. "encoding/base64")
 	HasPathParams  bool
 	Commands       []CommandData
 }
