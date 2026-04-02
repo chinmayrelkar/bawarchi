@@ -33,7 +33,7 @@ func ParseProto(data []byte, source string) (*CLIData, error) {
 		Description: fmt.Sprintf("gRPC CLI for %s", cliName),
 		BaseURL:     serverAddr,
 		Transport:   TransportGRPC,
-		AuthEnvVar:  strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(cliName, "_")) + "_TOKEN",
+		AuthEnvVar:  strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(cliName, "_")) + "__TOKEN",
 	}
 
 	// Extract all message definitions for field lookup

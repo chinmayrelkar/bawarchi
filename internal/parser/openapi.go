@@ -9,13 +9,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Minimal OpenAPI 3.x structs — only the fields bawarchi needs.
+// OpenAPI 3.x structs only.
 
-type openAPISpec struct {
-	Info       oaInfo                 `yaml:"info" json:"info"`
-	Servers    []oaServer             `yaml:"servers" json:"servers"`
-	Paths      map[string]oaPathItem  `yaml:"paths" json:"paths"`
-	Components oaComponents           `yaml:"components" json:"components"`
+type openAPI3Spec struct {
+	OpenAPI    string                `yaml:"openapi" json:"openapi"`
+	Info       oaInfo                `yaml:"info" json:"info"`
+	Servers    []oaServer            `yaml:"servers" json:"servers"`
+	Paths      map[string]oaPathItem `yaml:"paths" json:"paths"`
+	Components struct {
+		SecuritySchemes map[string]oaSecurityScheme `yaml:"securitySchemes" json:"securitySchemes"`
+	} `yaml:"components" json:"components"`
 }
 
 type oaInfo struct {
@@ -43,71 +46,81 @@ type oaOperation struct {
 	Parameters  []oaParameter `yaml:"parameters" json:"parameters"`
 }
 
+// OpenAPI 3.x: type lives inside schema.
 type oaParameter struct {
-	Name        string   `yaml:"name" json:"name"`
-	In          string   `yaml:"in" json:"in"`
-	Description string   `yaml:"description" json:"description"`
-	Required    bool     `yaml:"required" json:"required"`
-	Schema      oaSchema `yaml:"schema" json:"schema"`
-}
-
-type oaSchema struct {
-	Type string `yaml:"type" json:"type"`
-}
-
-type oaComponents struct {
-	SecuritySchemes map[string]oaSecurityScheme `yaml:"securitySchemes" json:"securitySchemes"`
+	Name        string `yaml:"name" json:"name"`
+	In          string `yaml:"in" json:"in"`
+	Description string `yaml:"description" json:"description"`
+	Required    bool   `yaml:"required" json:"required"`
+	Schema      struct {
+		Type string `yaml:"type" json:"type"`
+	} `yaml:"schema" json:"schema"`
 }
 
 type oaSecurityScheme struct {
-	Type   string `yaml:"type" json:"type"`   // apiKey, http
-	In     string `yaml:"in" json:"in"`       // header, query, cookie
-	Name   string `yaml:"name" json:"name"`   // header or query param name
-	Scheme string `yaml:"scheme" json:"scheme"` // bearer, basic
+	Type   string `yaml:"type" json:"type"`
+	In     string `yaml:"in" json:"in"`
+	Name   string `yaml:"name" json:"name"`
+	Scheme string `yaml:"scheme" json:"scheme"`
 }
 
-type pathOp struct {
-	method string
-	path   string
-	op     *oaOperation
-}
-
-func ParseOpenAPI(data []byte, source string) (*CLIData, error) {
-	var spec openAPISpec
-
-	// Try YAML first (superset of JSON)
+// ParseOpenAPI parses an OpenAPI 3.x spec.
+func ParseOpenAPI(data []byte) (*CLIData, error) {
+	var spec openAPI3Spec
 	if err := yaml.Unmarshal(data, &spec); err != nil {
 		if err2 := json.Unmarshal(data, &spec); err2 != nil {
-			return nil, fmt.Errorf("parsing spec: %w", err)
+			return nil, fmt.Errorf("parsing OpenAPI 3.x spec: %w", err)
 		}
 	}
-
 	if spec.Info.Title == "" {
 		return nil, fmt.Errorf("spec has no info.title")
 	}
 
 	cli := &CLIData{
 		Name:        toCommandName(spec.Info.Title),
-		Description: spec.Info.Description,
+		Description: firstNonEmpty(spec.Info.Description, spec.Info.Title),
 		Transport:   TransportREST,
 	}
-	if cli.Description == "" {
-		cli.Description = spec.Info.Title
-	}
 
-	// Base URL
 	if len(spec.Servers) > 0 {
 		cli.BaseURL = strings.TrimRight(spec.Servers[0].URL, "/")
 	}
 
-	// Auth
-	cli.AuthEnvVar, cli.AuthSetup = extractAuth(spec, cli.Name)
+	cli.AuthEnvVar, cli.AuthSetup = authFromSchemes(spec.Components.SecuritySchemes, cli.Name)
+	buildCommandsFromOps(cli, spec.Paths, func(p oaParameter) (in, typ string) {
+		return p.In, p.Schema.Type
+	})
 
-	// Group operations by first tag
+	return cli, nil
+}
+
+// authFromSchemes derives auth env var and Go code snippet from OpenAPI 3.x security schemes.
+func authFromSchemes(schemes map[string]oaSecurityScheme, apiName string) (envVar, setup string) {
+	prefix := strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(apiName, "_"))
+	envVar = prefix + "__API_KEY"
+
+	for _, s := range schemes {
+		switch s.Type {
+		case "http":
+			if strings.EqualFold(s.Scheme, "bearer") {
+				return prefix + "__TOKEN", `req.Header.Set("Authorization", "Bearer "+key)`
+			}
+		case "apiKey":
+			if s.In == "header" {
+				h := firstNonEmpty(s.Name, "Authorization")
+				return envVar, fmt.Sprintf(`req.Header.Set(%q, key)`, h)
+			}
+		}
+	}
+	return envVar, `req.Header.Set("Authorization", "Bearer "+key)`
+}
+
+// buildCommandsFromOps populates cli.Commands from collected path operations.
+func buildCommandsFromOps(cli *CLIData, paths map[string]oaPathItem, getParamInfo func(oaParameter) (in, typ string)) {
 	tagOps := map[string][]pathOp{}
-	tagOrder := []string{}
+	var tagOrder []string
 
-	methods := []struct {
+	httpMethods := []struct {
 		name string
 		get  func(oaPathItem) *oaOperation
 	}{
@@ -118,8 +131,8 @@ func ParseOpenAPI(data []byte, source string) (*CLIData, error) {
 		{"DELETE", func(p oaPathItem) *oaOperation { return p.Delete }},
 	}
 
-	for path, item := range spec.Paths {
-		for _, m := range methods {
+	for path, item := range paths {
+		for _, m := range httpMethods {
 			op := m.get(item)
 			if op == nil {
 				continue
@@ -136,14 +149,12 @@ func ParseOpenAPI(data []byte, source string) (*CLIData, error) {
 	}
 
 	for _, tag := range tagOrder {
-		ops := tagOps[tag]
 		cmd := CommandData{
 			Name:        toCommandName(tag),
 			GoName:      toPascalCase(tag),
 			Description: tag,
 		}
-
-		for _, pop := range ops {
+		for _, pop := range tagOps[tag] {
 			opName := operationName(pop)
 			od := OperationData{
 				Name:        opName,
@@ -152,10 +163,10 @@ func ParseOpenAPI(data []byte, source string) (*CLIData, error) {
 				Method:      pop.method,
 				Path:        pop.path,
 			}
-
 			for _, p := range pop.op.Parameters {
-				pd := buildParamData(p)
-				switch p.In {
+				in, typ := getParamInfo(p)
+				pd := makeParamData(p.Name, p.Description, p.Required, typ)
+				switch in {
 				case "path":
 					pd.PathPlaceholder = "{" + p.Name + "}"
 					od.PathParams = append(od.PathParams, pd)
@@ -164,83 +175,44 @@ func ParseOpenAPI(data []byte, source string) (*CLIData, error) {
 					od.QueryParams = append(od.QueryParams, pd)
 				}
 			}
-
 			cmd.Operations = append(cmd.Operations, od)
 		}
-
 		if len(cmd.Operations) > 0 {
 			cli.Commands = append(cli.Commands, cmd)
 		}
 	}
-
-	return cli, nil
 }
 
-func extractAuth(spec openAPISpec, apiName string) (envVar, setup string) {
-	prefix := strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(apiName, "_"))
-	envVar = prefix + "_API_KEY"
-
-	for _, scheme := range spec.Components.SecuritySchemes {
-		switch scheme.Type {
-		case "http":
-			if strings.EqualFold(scheme.Scheme, "bearer") {
-				envVar = prefix + "_TOKEN"
-				setup = `req.Header.Set("Authorization", "Bearer "+key)`
-				return
-			}
-		case "apiKey":
-			if scheme.In == "header" {
-				headerName := scheme.Name
-				if headerName == "" {
-					headerName = "Authorization"
-				}
-				setup = fmt.Sprintf(`req.Header.Set(%q, key)`, headerName)
-				return
-			}
-		}
-	}
-
-	// Default: assume Bearer token
-	setup = `req.Header.Set("Authorization", "Bearer "+key)`
-	return
-}
-
-func buildParamData(p oaParameter) ParamData {
-	pd := ParamData{
-		Name:        p.Name,
-		GoVarName:   toPascalCase(p.Name),
-		FlagName:    toKebabCase(p.Name),
-		Description: p.Description,
-		Required:    p.Required,
-	}
-
-	switch p.Schema.Type {
-	case "integer":
-		pd.GoType = "int"
-		pd.FlagFunc = "IntVar"
-		pd.DefaultLiteral = "0"
-		pd.DefaultCmp = "!= 0"
-	case "number":
-		pd.GoType = "float64"
-		pd.FlagFunc = "Float64Var"
-		pd.DefaultLiteral = "0.0"
-		pd.DefaultCmp = "!= 0.0"
-	default:
-		pd.GoType = "string"
-		pd.FlagFunc = "StringVar"
-		pd.DefaultLiteral = `""`
-		pd.DefaultCmp = `!= ""`
-	}
-
-	return pd
+type pathOp struct {
+	method string
+	path   string
+	op     *oaOperation
 }
 
 func operationName(pop pathOp) string {
 	if pop.op.OperationID != "" {
 		return toCommandName(pop.op.OperationID)
 	}
-	// fallback: method name
 	return strings.ToLower(pop.method)
+}
+
+func makeParamData(name, description string, required bool, typ string) ParamData {
+	pd := ParamData{
+		Name:        name,
+		GoVarName:   toPascalCase(name),
+		FlagName:    toKebabCase(name),
+		Description: description,
+		Required:    required,
+	}
+	switch typ {
+	case "integer":
+		pd.GoType, pd.FlagFunc, pd.DefaultLiteral, pd.DefaultCmp = "int", "IntVar", "0", "!= 0"
+	case "number":
+		pd.GoType, pd.FlagFunc, pd.DefaultLiteral, pd.DefaultCmp = "float64", "Float64Var", "0.0", "!= 0.0"
+	default:
+		pd.GoType, pd.FlagFunc, pd.DefaultLiteral, pd.DefaultCmp = "string", "StringVar", `""`, `!= ""`
+	}
+	return pd
 }
 
 // --- string helpers ---
@@ -254,7 +226,6 @@ func toCommandName(s string) string {
 }
 
 func toKebabCase(s string) string {
-	// insert hyphen before uppercase letters (camelCase → kebab-case)
 	re := regexp.MustCompile(`([a-z])([A-Z])`)
 	s = re.ReplaceAllString(s, "$1-$2")
 	return strings.ToLower(nonAlnum.ReplaceAllString(s, "-"))

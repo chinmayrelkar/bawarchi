@@ -81,6 +81,7 @@ func grpcCall(service, method string, fields map[string]string) {
 	}
 }
 {{range .Commands}}
+{{- $cmd := .}}
 // {{.Name}}: {{.Description}}
 func cmd{{.GoName}}(args []string) {
 {{- if gt (len .Operations) 1}}
@@ -96,19 +97,19 @@ func cmd{{.GoName}}(args []string) {
 	switch args[0] {
 {{- range .Operations}}
 	case "{{.Name}}":
-		op{{$.GoName}}{{.GoName}}(args[1:])
+		op{{$cmd.GoName}}{{.GoName}}(args[1:])
 {{- end}}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", args[0])
 		os.Exit(1)
 	}
 {{- else}}{{with index .Operations 0}}
-	op{{$.GoName}}{{.GoName}}(args)
+	op{{$cmd.GoName}}{{.GoName}}(args)
 {{- end}}{{end}}
 }
 {{range .Operations}}
-func op{{$.GoName}}{{.GoName}}(args []string) {
-	fs := flag.NewFlagSet("{{$.Name}} {{$.Name}} {{.Name}}", flag.ExitOnError)
+func op{{$cmd.GoName}}{{.GoName}}(args []string) {
+	fs := flag.NewFlagSet("{{$.Name}} {{$cmd.Name}} {{.Name}}", flag.ExitOnError)
 {{- range .InputParams}}
 	var p{{.GoVarName}} {{.GoType}} = {{.DefaultLiteral}}
 	fs.{{.FlagFunc}}(&p{{.GoVarName}}, "{{.FlagName}}", {{.DefaultLiteral}}, "{{.Description}}")

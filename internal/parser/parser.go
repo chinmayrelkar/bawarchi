@@ -75,7 +75,13 @@ func ParseSource(source string) (*CLIData, error) {
 	if strings.HasSuffix(strings.ToLower(source), ".proto") {
 		return ParseProto(data, source)
 	}
-	return ParseOpenAPI(data, source)
+
+	switch versionFromBytes(data) {
+	case "swagger2":
+		return ParseSwagger(data)
+	default:
+		return ParseOpenAPI(data)
+	}
 }
 
 func load(source string) ([]byte, error) {

@@ -39,7 +39,7 @@ func rootCmd() *cobra.Command {
 // add -------------------------------------------------------------------------
 
 func addCmd() *cobra.Command {
-	var name string
+	var name, baseURL string
 	cmd := &cobra.Command{
 		Use:   "add <spec>",
 		Short: "Generate a CLI from an OpenAPI spec or .proto file",
@@ -54,6 +54,9 @@ func addCmd() *cobra.Command {
 			}
 			if name != "" {
 				data.Name = name
+			}
+			if baseURL != "" {
+				data.BaseURL = baseURL
 			}
 
 			// Check for duplicates
@@ -71,6 +74,7 @@ func addCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Override the CLI name derived from the spec")
+	cmd.Flags().StringVar(&baseURL, "base-url", "", "Override the base URL from the spec (e.g. for EU endpoints)")
 	return cmd
 }
 
