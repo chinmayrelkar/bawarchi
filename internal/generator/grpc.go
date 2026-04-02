@@ -44,13 +44,13 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("{{.Name}} — {{.Description}}")
+	fmt.Println("{{.Name}} — {{safeStr .Description}}")
 	fmt.Println()
 	fmt.Println("Usage: {{.Name}} <command> [flags]")
 	fmt.Println()
 	fmt.Println("Commands:")
 {{- range .Commands}}
-	fmt.Printf("  %-20s %s\n", "{{.Name}}", "{{.Description}}")
+	fmt.Printf("  %-20s %s\n", "{{.Name}}", "{{safeStr .Description}}")
 {{- end}}
 	fmt.Printf("\nServer: %s\n", serverAddr)
 	fmt.Printf("Auth:   set %s env var for bearer token (optional)\n", authEnvVar)
@@ -90,7 +90,7 @@ func cmd{{.GoName}}(args []string) {
 		fmt.Println()
 		fmt.Println("Subcommands:")
 {{- range .Operations}}
-		fmt.Printf("  %-20s %s\n", "{{.Name}}", "{{.Description}}")
+		fmt.Printf("  %-20s %s\n", "{{.Name}}", "{{safeStr .Description}}")
 {{- end}}
 		return
 	}
@@ -112,7 +112,7 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 	fs := flag.NewFlagSet("{{$.Name}} {{$cmd.Name}} {{.Name}}", flag.ExitOnError)
 {{- range .InputParams}}
 	var p{{.GoVarName}} {{.GoType}} = {{.DefaultLiteral}}
-	fs.{{.FlagFunc}}(&p{{.GoVarName}}, "{{.FlagName}}", {{.DefaultLiteral}}, "{{.Description}}")
+	fs.{{.FlagFunc}}(&p{{.GoVarName}}, "{{.FlagName}}", {{.DefaultLiteral}}, "{{safeStr .Description}}")
 {{- end}}
 	fs.Parse(args)
 
@@ -127,7 +127,7 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 {{end}}{{end}}`
 
 func generateGRPC(data *parser.CLIData) ([]byte, error) {
-	tmpl, err := template.New("grpc").Parse(grpcTemplate)
+	tmpl, err := template.New("grpc").Funcs(tmplFuncs).Parse(grpcTemplate)
 	if err != nil {
 		return nil, err
 	}

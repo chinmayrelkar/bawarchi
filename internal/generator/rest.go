@@ -44,13 +44,13 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("{{.Name}} — {{.Description}}")
+	fmt.Println("{{.Name}} — {{safeStr .Description}}")
 	fmt.Println()
 	fmt.Println("Usage: {{.Name}} <command> [flags]")
 	fmt.Println()
 	fmt.Println("Commands:")
 {{- range .Commands}}
-	fmt.Printf("  %-20s %s\n", "{{.Name}}", "{{.Description}}")
+	fmt.Printf("  %-20s %s\n", "{{.Name}}", "{{safeStr .Description}}")
 {{- end}}
 	fmt.Printf("\nRequires %s environment variable.\n", authEnvVar)
 }
@@ -99,7 +99,7 @@ func cmd{{.GoName}}(args []string) {
 		fmt.Println()
 		fmt.Println("Subcommands:")
 {{- range .Operations}}
-		fmt.Printf("  %-20s %s\n", "{{.Name}}", "{{.Description}}")
+		fmt.Printf("  %-20s %s\n", "{{.Name}}", "{{safeStr .Description}}")
 {{- end}}
 		return
 	}
@@ -121,11 +121,11 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 	fs := flag.NewFlagSet("{{$.Name}} {{$cmd.Name}} {{.Name}}", flag.ExitOnError)
 {{- range .QueryParams}}
 	var p{{.GoVarName}} {{.GoType}} = {{.DefaultLiteral}}
-	fs.{{.FlagFunc}}(&p{{.GoVarName}}, "{{.FlagName}}", {{.DefaultLiteral}}, "{{.Description}}")
+	fs.{{.FlagFunc}}(&p{{.GoVarName}}, "{{.FlagName}}", {{.DefaultLiteral}}, "{{safeStr .Description}}")
 {{- end}}
 {{- range .PathParams}}
 	var p{{.GoVarName}} string
-	fs.StringVar(&p{{.GoVarName}}, "{{.FlagName}}", "", "{{.Description}} (required)")
+	fs.StringVar(&p{{.GoVarName}}, "{{.FlagName}}", "", "{{safeStr .Description}} (required)")
 {{- end}}
 	fs.Parse(args)
 {{range .PathParams}}
@@ -155,7 +155,7 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 {{end}}{{end}}`
 
 func generateREST(data *parser.CLIData) ([]byte, error) {
-	tmpl, err := template.New("rest").Parse(restTemplate)
+	tmpl, err := template.New("rest").Funcs(tmplFuncs).Parse(restTemplate)
 	if err != nil {
 		return nil, err
 	}
