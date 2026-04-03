@@ -9,11 +9,12 @@ import (
 )
 
 type Entry struct {
-	Name       string    `json:"name"`
-	SpecSource string    `json:"spec_source"`
-	Transport  string    `json:"transport"` // "rest" or "grpc"
-	AddedAt    time.Time `json:"added_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Name        string    `json:"name"`
+	SpecSource  string    `json:"spec_source"`
+	Transport   string    `json:"transport"` // "rest" or "grpc"
+	BaseURL     string    `json:"base_url,omitempty"` // overridden base URL (e.g. EU endpoint)
+	AddedAt     time.Time `json:"added_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func Dir() string        { return filepath.Join(home(), ".bawarchi") }
@@ -76,7 +77,7 @@ func Get(name string) (*Entry, error) {
 	return nil, errors.New("not found: " + name)
 }
 
-func Update(name string, specSource string) error {
+func Update(name, specSource, baseURL string) error {
 	entries, err := Load()
 	if err != nil {
 		return err
@@ -85,6 +86,9 @@ func Update(name string, specSource string) error {
 		if entries[i].Name == name {
 			if specSource != "" {
 				entries[i].SpecSource = specSource
+			}
+			if baseURL != "" {
+				entries[i].BaseURL = baseURL
 			}
 			entries[i].UpdatedAt = time.Now()
 			return Save(entries)

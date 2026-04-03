@@ -64,7 +64,7 @@ func addCmd() *cobra.Command {
 				return fmt.Errorf("%q already exists — use 'bawarchi update %s' to regenerate", data.Name, data.Name)
 			}
 
-			if err := cookAndRegister(data, source, true); err != nil {
+			if err := cookAndRegister(data, source, baseURL, true); err != nil {
 				return err
 			}
 
@@ -107,7 +107,7 @@ func listCmd() *cobra.Command {
 // update ----------------------------------------------------------------------
 
 func updateCmd() *cobra.Command {
-	var source string
+	var source, baseURL string
 	cmd := &cobra.Command{
 		Use:   "update <name>",
 		Short: "Re-fetch the spec and regenerate a CLI",
@@ -123,6 +123,10 @@ func updateCmd() *cobra.Command {
 			if source != "" {
 				src = source
 			}
+			overrideURL := entry.BaseURL
+			if baseURL != "" {
+				overrideURL = baseURL
+			}
 
 			fmt.Printf("Re-parsing %s…\n", src)
 			data, err := parser.ParseSource(src)
@@ -130,17 +134,21 @@ func updateCmd() *cobra.Command {
 				return fmt.Errorf("parse: %w", err)
 			}
 			data.Name = name
+			if overrideURL != "" {
+				data.BaseURL = overrideURL
+			}
 
-			if err := cookAndRegister(data, src, false); err != nil {
+			if err := cookAndRegister(data, src, overrideURL, false); err != nil {
 				return err
 			}
 
-			registry.Update(name, src) //nolint:errcheck
+			registry.Update(name, src, overrideURL) //nolint:errcheck
 			fmt.Printf("✓ %s updated\n", name)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&source, "source", "", "Use a different spec source for this update")
+	cmd.Flags().StringVar(&baseURL, "base-url", "", "Override the base URL (persisted; defaults to stored value)")
 	return cmd
 }
 
@@ -227,7 +235,7 @@ func infoCmd() *cobra.Command {
 
 // --- helpers -----------------------------------------------------------------
 
-func cookAndRegister(data *parser.CLIData, source string, isNew bool) error {
+func cookAndRegister(data *parser.CLIData, source, baseURL string, isNew bool) error {
 	srcDir := filepath.Join(registry.SrcDir(), data.Name)
 	binDir := registry.BinDir()
 	binPath := filepath.Join(binDir, data.Name)
@@ -251,6 +259,7 @@ func cookAndRegister(data *parser.CLIData, source string, isNew bool) error {
 			Name:       data.Name,
 			SpecSource: source,
 			Transport:  string(data.Transport),
+			BaseURL:    baseURL,
 			AddedAt:    time.Now(),
 			UpdatedAt:  time.Now(),
 		})
