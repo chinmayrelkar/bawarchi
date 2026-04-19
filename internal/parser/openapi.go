@@ -304,11 +304,18 @@ func toCommandName(s string) (string, error) {
 
 // methodPathSlug builds a stable operation name from an HTTP method and path,
 // e.g. GET /users/{id} → "get-users-id".
+// If the path contributes nothing (e.g. "/" or all non-alnum chars), the
+// function falls back to just the lower-case method name so the result is
+// never empty and never ends with a dangling dash.
 func methodPathSlug(method, path string) string {
 	// ToCommandName already replaces non-alnum with "-" and trims.
 	// Prefix with lower-case method and a separator, then re-clean.
 	combined := strings.ToLower(method) + "/" + path
-	return ToCommandName(combined)
+	slug := ToCommandName(combined)
+	if slug == "" {
+		return strings.ToLower(method)
+	}
+	return slug
 }
 
 func operationName(pop pathOp) string {

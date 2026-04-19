@@ -7,6 +7,19 @@ import (
 
 // ---- operationName / methodPathSlug tests ----
 
+// TestOperationName_RootPath verifies GET / does not produce an empty or
+// trailing-dash name; it must fall back to just "get".
+func TestOperationName_RootPath(t *testing.T) {
+	pop := pathOp{method: "GET", path: "/", op: &oaOperation{}}
+	got := operationName(pop)
+	if got == "" {
+		t.Error("operationName must not be empty for root path")
+	}
+	if strings.HasSuffix(got, "-") {
+		t.Errorf("operationName must not produce trailing dash, got %q", got)
+	}
+}
+
 // TestOperationName_NoOperationID_UsesMethodPathSlug verifies that GET /users/{id}
 // with no operationId resolves to "get-users-id".
 func TestOperationName_NoOperationID_UsesMethodPathSlug(t *testing.T) {
