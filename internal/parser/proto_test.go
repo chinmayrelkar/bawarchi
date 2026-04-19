@@ -1,6 +1,9 @@
 package parser
 
 import (
+	"bytes"
+	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -149,5 +152,81 @@ package foo.bar.v1;
 	// Default server address when no @server annotation present
 	if serverAddr != "localhost:50051" {
 		t.Errorf("serverAddr = %q, want %q", serverAddr, "localhost:50051")
+	}
+}
+
+// minimalProto returns a minimal .proto file with the given package name and an optional
+// @server annotation.
+func minimalProto(pkgName, serverAnnotation, serviceName string) []byte {
+	ann := ""
+	if serverAnnotation != "" {
+		ann = "// @server: " + serverAnnotation + "\n"
+	}
+	return []byte(`syntax = "proto3";
+package ` + pkgName + `;
+` + ann + `
+service ` + serviceName + ` {
+  rpc SayHello (HelloRequest) returns (HelloReply);
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloReply {
+  string message = 1;
+}
+`)
+}
+
+// TestParseProto_BaseURLEnvVarSet verifies that ParseProto populates BaseURLEnvVar
+// from the package name with the expected naming convention.
+func TestParseProto_BaseURLEnvVarSet(t *testing.T) {
+	// Suppress stderr warnings during test
+	old := os.Stderr
+	_, w, _ := os.Pipe()
+	os.Stderr = w
+	defer func() {
+		w.Close()
+		os.Stderr = old
+	}()
+
+	proto := minimalProto("testpkg", "myhost:50051", "TestService")
+	cli, err := ParseProto(proto, "test.proto")
+	if err != nil {
+		t.Fatalf("ParseProto failed: %v", err)
+	}
+
+	want := "TESTPKG__SERVER_ADDR"
+	if cli.BaseURLEnvVar != want {
+		t.Errorf("BaseURLEnvVar = %q, want %q", cli.BaseURLEnvVar, want)
+	}
+}
+
+// TestParseProto_ServerAnnotation_NoWarning verifies that when a @server: annotation is
+// present, no warning is written to stderr.
+func TestParseProto_ServerAnnotation_NoWarning(t *testing.T) {
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = w
+
+	proto := minimalProto("mypkg", "realhost:9090", "MyService")
+	_, parseErr := ParseProto(proto, "my.proto")
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	r.Close()
+
+	if parseErr != nil {
+		t.Fatalf("ParseProto failed: %v", parseErr)
+	}
+	if buf.Len() > 0 {
+		t.Errorf("expected no stderr output when @server annotation is present, got: %q", buf.String())
 	}
 }
