@@ -53,7 +53,7 @@ func printUsage() {
 	fmt.Printf("  %-20s %s\n", "{{.Name}}", "{{safeStr .Description}}")
 {{- end}}
 	fmt.Printf("\nServer: %s\n", serverAddr)
-	fmt.Printf("Auth:   set %s env var for bearer token (optional)\n", authEnvVar)
+	fmt.Printf("Auth:   set %s env var for bearer token (required)\n", authEnvVar)
 }
 
 func grpcCall(service, method string, fields map[string]string) {
@@ -67,9 +67,12 @@ func grpcCall(service, method string, fields map[string]string) {
 	args := []string{"-plaintext"}
 
 	// Auth
-	if key := os.Getenv(authEnvVar); key != "" {
-		args = append(args, "-H", "Authorization: Bearer "+key)
+	key := os.Getenv(authEnvVar)
+	if key == "" {
+		fmt.Fprintf(os.Stderr, "error: required env var %s is not set\n", authEnvVar)
+		os.Exit(1)
 	}
+	args = append(args, "-H", "Authorization: Bearer "+key)
 
 	args = append(args, "-d", body, serverAddr, service+"/"+method)
 
