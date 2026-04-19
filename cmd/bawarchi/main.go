@@ -40,6 +40,7 @@ func rootCmd() *cobra.Command {
 
 func addCmd() *cobra.Command {
 	var name, baseURL string
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "add <spec>",
 		Short: "Generate a CLI from an OpenAPI spec or .proto file",
@@ -59,6 +60,17 @@ func addCmd() *cobra.Command {
 				data.BaseURL = baseURL
 			}
 
+			// --dry-run: print generated source and exit without touching disk or registry.
+			if dryRun {
+				src, err := generator.GenerateDry(data)
+				if err != nil {
+					return fmt.Errorf("generate: %w", err)
+				}
+				fmt.Fprintln(os.Stdout, "--- generated: main.go ---")
+				os.Stdout.Write(src)
+				return nil
+			}
+
 			// Check for duplicates
 			if _, err := registry.Get(data.Name); err == nil {
 				return fmt.Errorf("%q already exists — use 'bawarchi update %s' to regenerate", data.Name, data.Name)
@@ -75,6 +87,7 @@ func addCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Override the CLI name derived from the spec")
 	cmd.Flags().StringVar(&baseURL, "base-url", "", "Override the base URL from the spec (e.g. for EU endpoints)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print generated main.go to stdout without compiling or registering")
 	return cmd
 }
 
