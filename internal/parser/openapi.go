@@ -126,6 +126,12 @@ func authFromSchemes(schemes map[string]oaSecurityScheme, apiName string) (envVa
 				}
 				return envVar, fmt.Sprintf(`req.Header.Set(%q, key)`, h)
 			}
+			if s.In == "query" {
+				// The spec expects the key as a URL query param, but credentials in
+				// URLs are exposed in server logs, browser history, and referrer
+				// headers. Pass the key via the Authorization header instead.
+				return envVar, `req.Header.Set("Authorization", "Bearer "+key)`
+			}
 		}
 	}
 	return envVar, `req.Header.Set("Authorization", "Bearer "+key)`
