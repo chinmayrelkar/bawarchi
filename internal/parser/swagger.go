@@ -123,8 +123,15 @@ func buildCommandsFromSwagger(cli *CLIData, rawPaths map[string]oaPathItem) {
 			GoName:      toPascalCase(tag),
 			Description: tag,
 		}
+		seenNames := map[string]int{} // dedup within this command/tag
 		for _, pop := range tagOps[tag] {
 			opName := operationName(pop)
+			if count, exists := seenNames[opName]; exists {
+				seenNames[opName] = count + 1
+				opName = fmt.Sprintf("%s-%d", opName, count+1)
+			} else {
+				seenNames[opName] = 1
+			}
 			od := OperationData{
 				Name:        opName,
 				GoName:      toPascalCase(opName),

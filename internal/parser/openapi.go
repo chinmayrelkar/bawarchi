@@ -248,8 +248,16 @@ func buildCommandsFromOps(cli *CLIData, paths map[string]oaPathItem, getParamInf
 			GoName:      toPascalCase(tag),
 			Description: tag,
 		}
+		seenNames := map[string]int{} // dedup within this command/tag
 		for _, pop := range tagOps[tag] {
 			opName := operationName(pop)
+			if count, exists := seenNames[opName]; exists {
+				// Disambiguate by appending a counter suffix.
+				seenNames[opName] = count + 1
+				opName = fmt.Sprintf("%s-%d", opName, count+1)
+			} else {
+				seenNames[opName] = 1
+			}
 			od := OperationData{
 				Name:        opName,
 				GoName:      toPascalCase(opName),
@@ -283,11 +291,36 @@ type pathOp struct {
 	op     *oaOperation
 }
 
+// toCommandName is the private variant of ToCommandName that additionally
+// returns a non-nil error when the result would be empty (e.g. operationId "---").
+// It is used only for operationId validation; the exported ToCommandName is unchanged.
+func toCommandName(s string) (string, error) {
+	result := ToCommandName(s)
+	if result == "" {
+		return "", fmt.Errorf("operationId %q normalizes to an empty string", s)
+	}
+	return result, nil
+}
+
+// methodPathSlug builds a stable operation name from an HTTP method and path,
+// e.g. GET /users/{id} → "get-users-id".
+func methodPathSlug(method, path string) string {
+	// ToCommandName already replaces non-alnum with "-" and trims.
+	// Prefix with lower-case method and a separator, then re-clean.
+	combined := strings.ToLower(method) + "/" + path
+	return ToCommandName(combined)
+}
+
 func operationName(pop pathOp) string {
 	if pop.op.OperationID != "" {
-		return ToCommandName(pop.op.OperationID)
+		name, err := toCommandName(pop.op.OperationID)
+		if err != nil {
+			// operationId normalizes to empty; fall back to method+path slug.
+			return methodPathSlug(pop.method, pop.path)
+		}
+		return name
 	}
-	return strings.ToLower(pop.method)
+	return methodPathSlug(pop.method, pop.path)
 }
 
 func makeParamData(name, description string, required bool, typ string) ParamData {
