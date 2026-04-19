@@ -54,6 +54,7 @@ func printUsage() {
 {{- end}}
 	fmt.Printf("\nServer: %s\n", serverAddr)
 	fmt.Printf("Auth:   set %s env var for bearer token (required)\n", authEnvVar)
+	fmt.Println("Hint:   use // @service: <fully.qualified.ServicePath> in your .proto to set the gRPC service prefix")
 }
 
 func grpcCall(service, method string, fields map[string]string) {

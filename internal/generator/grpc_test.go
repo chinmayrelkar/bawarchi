@@ -116,3 +116,26 @@ func TestGRPCTemplateBodyVariableName(t *testing.T) {
 		t.Error("generated code must pass body with \"-d\" flag to grpcurl")
 	}
 }
+
+// TestGRPCTemplateServiceHintInPrintUsage verifies that the generated source
+// unconditionally includes the @service annotation hint in the printUsage block.
+func TestGRPCTemplateServiceHintInPrintUsage(t *testing.T) {
+	src, err := generateGRPC(minimalGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	code := string(src)
+
+	if !strings.Contains(code, "@service") {
+		t.Error("generated printUsage must contain '@service' annotation hint")
+	}
+	// Ensure the hint is inside the printUsage function body
+	printUsageIdx := strings.Index(code, "func printUsage()")
+	if printUsageIdx == -1 {
+		t.Fatal("generated code must contain 'func printUsage()'")
+	}
+	afterPrintUsage := code[printUsageIdx:]
+	if !strings.Contains(afterPrintUsage, "@service") {
+		t.Error("@service hint must appear inside the printUsage function body")
+	}
+}
