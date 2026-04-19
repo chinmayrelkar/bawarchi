@@ -87,8 +87,11 @@ func ParseSource(source string) (*CLIData, error) {
 }
 
 func load(source string) ([]byte, error) {
-	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-		resp, err := http.Get(source) //nolint:gosec
+	if strings.HasPrefix(source, "http://") {
+		return nil, fmt.Errorf("spec source must use https:// (got http://)")
+	}
+	if strings.HasPrefix(source, "https://") {
+		resp, err := http.Get(source)
 		if err != nil {
 			return nil, fmt.Errorf("fetching spec: %w", err)
 		}
