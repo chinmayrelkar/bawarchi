@@ -53,6 +53,10 @@ func ParseSwagger(data []byte) (*CLIData, error) {
 	// except for how parameters encode their type — handled via getParamInfo.
 	buildCommandsFromSwagger(cli, spec.Paths)
 
+	if len(cli.Commands) == 0 {
+		return nil, fmt.Errorf("spec defines no operations")
+	}
+
 	return cli, nil
 }
 
