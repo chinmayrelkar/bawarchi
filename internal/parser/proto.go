@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -28,12 +29,14 @@ func ParseProto(data []byte, source string) (*CLIData, error) {
 		cliName = ToCommandName(services[0].name)
 	}
 
+	safeName := strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(cliName, "_"))
 	cli := &CLIData{
-		Name:        cliName,
-		Description: fmt.Sprintf("gRPC CLI for %s", cliName),
-		BaseURL:     serverAddr,
-		Transport:   TransportGRPC,
-		AuthEnvVar:  strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(cliName, "_")) + "__TOKEN",
+		Name:          cliName,
+		Description:   fmt.Sprintf("gRPC CLI for %s", cliName),
+		BaseURL:       serverAddr,
+		BaseURLEnvVar: safeName + "__SERVER_ADDR",
+		Transport:     TransportGRPC,
+		AuthEnvVar:    safeName + "__TOKEN",
 	}
 
 	// @noauth annotation: disable auth requirement for this service.
@@ -146,6 +149,7 @@ func extractProtoOption(content string) (servicePath, serverAddr string) {
 		serverAddr = m[1]
 	} else {
 		serverAddr = "localhost:50051"
+		fmt.Fprintf(os.Stderr, "warning: no // @server: annotation found; defaulting to localhost:50051\n")
 	}
 	// Look for a comment like: // @service: com.example.v1
 	if m := reServiceOption.FindStringSubmatch(content); m != nil {

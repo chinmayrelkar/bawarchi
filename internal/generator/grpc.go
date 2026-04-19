@@ -21,12 +21,17 @@ import (
 	"os/exec"
 )
 
-const (
-	serverAddr = "{{.BaseURL}}"
 {{- if .AuthEnvVar}}
-	authEnvVar = "{{.AuthEnvVar}}"
+const authEnvVar = "{{.AuthEnvVar}}"
+
 {{- end}}
-)
+var serverAddr = "{{.BaseURL}}"
+
+func init() {
+	if v := os.Getenv("{{.BaseURLEnvVar}}"); v != "" {
+		serverAddr = v
+	}
+}
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" || os.Args[1] == "help" {
@@ -71,11 +76,6 @@ func grpcCall(service, method string, fields map[string]string, plaintext bool) 
 	body := string(bodyBytes)
 
 	var args []string
-
-	// Use plaintext (no TLS) only when explicitly requested
-	if plaintext {
-		args = append(args, "-plaintext")
-	}
 {{- if .AuthEnvVar}}
 
 	// Auth
@@ -84,8 +84,19 @@ func grpcCall(service, method string, fields map[string]string, plaintext bool) 
 		fmt.Fprintf(os.Stderr, "error: required env var %s is not set\n", authEnvVar)
 		os.Exit(1)
 	}
+
+	// Refuse to send bearer token over an unencrypted connection.
+	if plaintext {
+		fmt.Fprintf(os.Stderr, "error: cannot use -plaintext when auth token is set (would send credentials in cleartext)\n")
+		os.Exit(1)
+	}
+
 	args = append(args, "-H", "Authorization: Bearer "+key)
 {{- end}}
+
+	if plaintext {
+		args = append(args, "-plaintext")
+	}
 
 	args = append(args, "-d", body, serverAddr, service+"/"+method)
 
