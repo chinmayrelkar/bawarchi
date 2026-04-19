@@ -77,7 +77,7 @@ func ParseOpenAPI(data []byte) (*CLIData, error) {
 	}
 
 	cli := &CLIData{
-		Name:        toCommandName(spec.Info.Title),
+		Name:        ToCommandName(spec.Info.Title),
 		Description: firstNonEmpty(spec.Info.Description, spec.Info.Title),
 		Transport:   TransportREST,
 	}
@@ -172,7 +172,7 @@ func buildCommandsFromOps(cli *CLIData, paths map[string]oaPathItem, getParamInf
 
 	for _, tag := range tagOrder {
 		cmd := CommandData{
-			Name:        toCommandName(tag),
+			Name:        ToCommandName(tag),
 			GoName:      toPascalCase(tag),
 			Description: tag,
 		}
@@ -213,7 +213,7 @@ type pathOp struct {
 
 func operationName(pop pathOp) string {
 	if pop.op.OperationID != "" {
-		return toCommandName(pop.op.OperationID)
+		return ToCommandName(pop.op.OperationID)
 	}
 	return strings.ToLower(pop.method)
 }
@@ -241,7 +241,7 @@ func makeParamData(name, description string, required bool, typ string) ParamDat
 
 var nonAlnum = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 
-func toCommandName(s string) string {
+func ToCommandName(s string) string {
 	s = nonAlnum.ReplaceAllString(s, "-")
 	s = strings.Trim(s, "-")
 	return strings.ToLower(s)
