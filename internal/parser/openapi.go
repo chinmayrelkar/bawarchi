@@ -100,6 +100,10 @@ func ParseOpenAPI(data []byte) (*CLIData, error) {
 		return p.In, p.Schema.Type
 	})
 
+	if len(cli.Commands) == 0 {
+		return nil, fmt.Errorf("spec defines no operations")
+	}
+
 	return cli, nil
 }
 
