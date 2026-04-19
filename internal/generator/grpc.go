@@ -61,7 +61,7 @@ func printUsage() {
 	fmt.Println("Hint:   use // @service: <fully.qualified.ServicePath> in your .proto to set the gRPC service prefix")
 }
 
-func grpcCall(service, method string, fields map[string]string) {
+func grpcCall(service, method string, fields map[string]string, plaintext bool) {
 	// Build JSON body from fields
 	bodyBytes, err := json.Marshal(fields)
 	if err != nil {
@@ -70,7 +70,12 @@ func grpcCall(service, method string, fields map[string]string) {
 	}
 	body := string(bodyBytes)
 
-	args := []string{"-plaintext"}
+	var args []string
+
+	// Use plaintext (no TLS) only when explicitly requested
+	if plaintext {
+		args = append(args, "-plaintext")
+	}
 {{- if .AuthEnvVar}}
 
 	// Auth
@@ -121,6 +126,8 @@ func cmd{{.GoName}}(args []string) {
 {{range .Operations}}
 func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 	fs := flag.NewFlagSet("{{$.Name}} {{$cmd.Name}} {{.Name}}", flag.ExitOnError)
+	var plaintext bool
+	fs.BoolVar(&plaintext, "plaintext", false, "disable TLS (for local development only)")
 {{- range .InputParams}}
 	var p{{.GoVarName}} {{.GoType}} = {{.DefaultLiteral}}
 	fs.{{.FlagFunc}}(&p{{.GoVarName}}, "{{.FlagName}}", {{.DefaultLiteral}}, "{{safeStr .Description}}")
@@ -133,7 +140,7 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 		fields["{{.Name}}"] = fmt.Sprintf("%v", p{{.GoVarName}})
 	}
 {{- end}}
-	grpcCall("{{.GRPCService}}", "{{.GRPCMethod}}", fields)
+	grpcCall("{{.GRPCService}}", "{{.GRPCMethod}}", fields, plaintext)
 }
 {{end}}{{end}}`
 
