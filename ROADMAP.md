@@ -7,7 +7,7 @@
 
 ### Correct API Payloads & Type Fidelity
 
-Everything required to send and receive API data correctly across all three spec formats. REST POST/PUT/PATCH currently sends no body at all. Swagger 2.0 silently treats all integer and number parameters as strings. gRPC serializes typed fields as quoted strings and emits string flags for booleans. Operations without an operationId can collide and produce uncompilable CLIs. The 'strings' import bug silently breaks generated CLIs for path-param-free specs. This theme makes mutation operations, typed flag generation, and field serialization work correctly against real APIs.
+Everything required to send and receive API data correctly across all three spec formats. REST POST/PUT/PATCH currently sends no body at all. Swagger 2.0 silently treats all integer and number parameters as strings. gRPC serializes typed fields as quoted strings, emits string flags for booleans, and passes all values through a string map that defeats native JSON type emission. Operations without an operationId can collide and produce uncompilable CLIs. The 'strings' import bug silently breaks generated CLIs for path-param-free specs. Header parameters are dropped entirely. This theme makes mutation operations, typed flag generation, field serialization, and header forwarding work correctly against real APIs.
 
 - 🔴 **Spike: design the data model for OpenAPI requestBody and $ref schema resolution** (🔬 spike, complexity 5)
   - Sources: internal/parser/openapi.go, internal/parser/swagger.go, internal/parser/parser.go, internal/generator/rest.go:160
@@ -29,12 +29,14 @@ Everything required to send and receive API data correctly across all three spec
   - Sources: internal/parser/openapi.go:85, internal/parser/swagger.go:107, internal/parser/parser.go:33
 - 🟡 **Exclude enum values and oneof block field lines from proto message field extraction** (✨ feature, complexity 2)
   - Sources: internal/parser/proto.go:106, internal/parser/proto.go:103
-- 🟡 **Spike: evaluate replacing regex-based proto parser with a proper AST/depth-aware parser** (🔬 spike, complexity 5)
-  - Sources: internal/parser/proto.go:103, internal/parser/proto.go:105
+- 🟡 **Support OpenAPI header parameters in generated REST CLIs** (✨ feature, complexity 3)
+  - Sources: internal/parser/openapi.go:200-211, internal/parser/swagger.go:138-148, internal/parser/parser.go:40-55, internal/generator/rest.go:127-161
+- 🟠 **Use map[string]interface{} instead of map[string]string in gRPC grpcCall to emit native JSON types** (✨ feature, complexity 2)
+  - Sources: internal/generator/grpc.go:60-86, internal/generator/grpc.go:115-131, internal/parser/proto.go:191-227
 
 ### Reliable gRPC Generation
 
-Close the gaps specific to gRPC that prevent generated CLIs from working against real infrastructure. Phantom go.mod dependencies break builds without an obvious error. There is no runtime server address override. Streaming RPCs silently produce broken commands. grpcurl absence gives no guidance. Fully-qualified service names are unsupported. Internal services without auth cannot be targeted. Together these make generated gRPC CLIs usable beyond localhost toy servers.
+Close the gaps specific to gRPC that prevent generated CLIs from working against real infrastructure. Phantom go.mod dependencies break builds without an obvious error. TLS is never used, making every generated gRPC CLI useless against production servers. There is no runtime server address override. Streaming RPCs silently produce broken commands. grpcurl absence gives no guidance. Fully-qualified service names are unsupported. Internal services without auth cannot be targeted. The regex-based proto parser misreads enum values and oneof blocks as message fields, and may fail entirely on nested structures. Together these make generated gRPC CLIs usable beyond localhost toy servers.
 
 - 🟠 **Remove phantom grpcurl/grpc Go module dependencies from generated gRPC go.mod** (✨ feature, complexity 1)
   - Sources: internal/generator/generator.go:53-57
@@ -48,10 +50,14 @@ Close the gaps specific to gRPC that prevent generated CLIs from working against
   - Sources: internal/parser/proto.go:64-66, internal/parser/proto.go:123-131, internal/parser/proto.go:99-108
 - 🟡 **Support @noauth proto annotation to generate unauthenticated gRPC CLIs** (✨ feature, complexity 2)
   - Sources: internal/generator/grpc.go:71, internal/parser/proto.go:123, internal/parser/proto.go:31
+- 🟡 **Spike: evaluate replacing regex-based proto parser with a proper AST/depth-aware parser** (🔬 spike, complexity 5)
+  - Sources: internal/parser/proto.go:103, internal/parser/proto.go:105
+- 🟠 **Add TLS support to generated gRPC CLIs (remove hardcoded -plaintext)** (✨ feature, complexity 2)
+  - Sources: internal/generator/grpc.go:69, internal/parser/proto.go:120-122
 
 ### Safe Local Storage & Hardened File Handling
 
-The registry and generated artifacts in ~/.bawarchi may embed credentials and internal URLs and must be treated as sensitive. This theme hardens permissions end-to-end, prevents registry corruption on interrupted writes, closes the path-traversal hole in the --name flag, ensures storage and command failures are surfaced rather than swallowed, and adds spec caching so 'bawarchi update' survives a moved or offline source.
+The registry and generated artifacts in ~/.bawarchi may embed credentials and internal URLs and must be treated as sensitive. This theme hardens permissions end-to-end, prevents registry corruption on interrupted writes, closes the path-traversal hole in the --name flag, prevents ghost duplicate entries from case variations, ensures storage and command failures are surfaced rather than swallowed, cleans up dangling install symlinks on remove, and adds spec caching so 'bawarchi update' survives a moved or offline source.
 
 - 🟡 **Make registry.Save() atomic to prevent corruption on interrupted writes** (✨ feature, complexity 2)
   - Sources: internal/registry/registry.go:43-51
@@ -65,10 +71,14 @@ The registry and generated artifacts in ~/.bawarchi may embed credentials and in
   - Sources: cmd/bawarchi/main.go:56, cmd/bawarchi/main.go:136, internal/generator/generator.go:49
 - ⚪ **Cache raw spec bytes to SpecDir on 'bawarchi add' and use cached copy as fallback on 'bawarchi update'** (✨ feature, complexity 3)
   - Sources: internal/registry/registry.go:21, cmd/bawarchi/main.go:238, cmd/bawarchi/main.go:63
+- 🟡 **Make registry name lookup case-insensitive to prevent duplicate entries** (✨ feature, complexity 1)
+  - Sources: internal/registry/registry.go:60, internal/registry/registry.go:72, internal/registry/registry.go:85, internal/registry/registry.go:107
+- 🟡 **Clean up install symlink when running 'bawarchi remove'** (✨ feature, complexity 2)
+  - Sources: cmd/bawarchi/main.go:215-231, cmd/bawarchi/main.go:179-211, internal/registry/registry.go:11-18
 
 ### Trustworthy CLI UX & Generated CLI Quality
 
-Users should be able to trust both bawarchi itself and the CLIs it generates. Covers: HTTP timeouts that prevent indefinite hangs, standardized exit codes that distinguish client from server errors, deterministic command ordering for reproducible output, correct response body error handling, a deterministic auth scheme selection, the duplicate 'Source:' label in 'bawarchi info', the hardcoded Go version in generated go.mod, --version and --dry-run flags, a multi-server environment-switching design, and noise reduction in the compiler's output stream. The small polish items that separate a prototype from a tool people rely on daily.
+Users should be able to trust both bawarchi itself and the CLIs it generates. Covers: HTTP timeouts that prevent indefinite hangs, standardized exit codes that distinguish client from server errors, deterministic command and tag ordering for reproducible output, correct response body error handling, a deterministic auth scheme selection, the actual Go toolchain version in generated go.mod, multi-server environment-switching design, noise reduction in the compiler output stream, the duplicate 'Source:' label in 'bawarchi info', and small polish items that separate a prototype from a tool people rely on daily.
 
 - 🟡 **Handle non-JSON REST responses gracefully without silently discarding read errors** (✨ feature, complexity 1)
   - Sources: internal/generator/rest.go:86
@@ -92,10 +102,12 @@ Users should be able to trust both bawarchi itself and the CLIs it generates. Co
   - Sources: internal/generator/generator.go:51, internal/generator/generator.go:61
 - ⚪ **Discard 'go mod tidy' and 'go build' stdout in compiler to avoid polluting user's stderr stream** (✨ feature, complexity 1)
   - Sources: internal/compiler/compiler.go:18, internal/compiler/compiler.go:26
+- ⚪ **Sort tags before building commands for deterministic tag order in generated CLIs** (✨ feature, complexity 1)
+  - Sources: internal/parser/openapi.go:146-176, internal/parser/swagger.go:84-114
 
 ### Test Coverage & Regression Safety
 
-The critical path from ParseSource through Generate to Compile has zero automated test coverage. Bugs like Swagger 2.0 integer params always becoming strings, or duplicate case labels crashing the Go compiler, are invisible until a real spec is tried. This theme establishes a test foundation: table-driven parser tests, golden-file generator output tests, registry CRUD tests using t.TempDir(), and edge-case coverage for operationId normalization, auth scheme selection, and flag validation. A prerequisite for safe iteration on every other theme.
+The critical path from ParseSource through Generate to Compile has minimal automated test coverage. Bugs like Swagger 2.0 integer params always becoming strings, or duplicate case labels crashing the Go compiler, are invisible until a real spec is tried. This theme establishes a test foundation: table-driven parser tests, golden-file generator output tests, registry CRUD tests using t.TempDir(), and edge-case coverage for operationId normalization, auth scheme selection, and flag validation. A prerequisite for safe iteration on every other theme.
 
 - 🟠 **Add unit tests for parsers, generators, registry, and compiler covering critical paths** (✨ feature, complexity 4)
   - Sources: internal/parser/openapi.go:107, internal/parser/swagger.go:162, internal/generator/rest.go:1, internal/registry/registry.go:1
@@ -106,14 +118,16 @@ The critical path from ParseSource through Generate to Compile has zero automate
 |----------|------|-------|------------|--------|
 | critical | spike | Spike: design the data model for OpenAPI requestBody and $ref schema resolution | 5 | ⏳ dispatched |
 | critical | feature | Support REST body parameters (POST/PUT/PATCH) in the REST generator | 4 | ⏳ dispatched |
-| critical | feature | Sanitize --name flag to prevent path traversal when writing generated source and binary files | 1 | 📋 queued |
+| critical | feature | Sanitize --name flag to prevent path traversal when writing generated source and binary files | 1 | ⏳ dispatched |
 | high | feature | Fix gRPC JSON body: serialize int/float/bool fields as correct JSON types, not quoted strings | 2 | ⏳ dispatched |
 | high | feature | Remove phantom grpcurl/grpc Go module dependencies from generated gRPC go.mod | 1 | ⏳ dispatched |
 | high | feature | Emit native bool flags for proto bool fields in gRPC generator | 3 | ⏳ dispatched |
 | high | feature | Conditionally import 'strings' in REST template to prevent compile error on path-param-free specs | 1 | ⏳ dispatched |
-| high | feature | Fix Swagger 2.0 parameter type extraction: integer/number params are always treated as string | 3 | 📋 queued |
-| high | feature | Deduplicate generated CLI command names when multiple operations share the same HTTP method and have no operationId | 2 | 📋 queued |
-| high | feature | Add unit tests for parsers, generators, registry, and compiler covering critical paths | 4 | 📋 queued |
+| high | feature | Fix Swagger 2.0 parameter type extraction: integer/number params are always treated as string | 3 | ⏳ dispatched |
+| high | feature | Deduplicate generated CLI command names when multiple operations share the same HTTP method and have no operationId | 2 | ⏳ dispatched |
+| high | feature | Add unit tests for parsers, generators, registry, and compiler covering critical paths | 4 | ⏳ dispatched |
+| high | feature | Add TLS support to generated gRPC CLIs (remove hardcoded -plaintext) | 2 | 📋 queued |
+| high | feature | Use map[string]interface{} instead of map[string]string in gRPC grpcCall to emit native JSON types | 2 | 📋 queued |
 | medium | feature | Make registry.Save() atomic to prevent corruption on interrupted writes | 2 | ⏳ dispatched |
 | medium | feature | Surface silently swallowed errors in update, remove, and install commands | 1 | ⏳ dispatched |
 | medium | feature | Add runtime env var override for gRPC server address (mirrors REST BaseURLEnvVar) | 2 | ⏳ dispatched |
@@ -126,16 +140,20 @@ The critical path from ParseSource through Generate to Compile has zero automate
 | medium | feature | Sort path map keys before building commands for deterministic generated CLI output | 2 | ⏳ dispatched |
 | medium | feature | Support fully-qualified gRPC service name via @service annotation in .proto files | 2 | ⏳ dispatched |
 | medium | feature | Harden generated source and binary directory permissions in compiler and cookAndRegister | 1 | ⏳ dispatched |
-| medium | feature | Fix 'bawarchi info' output: 'Source:' label is printed twice for two different values | 1 | 📋 queued |
-| medium | feature | Reject specs that define no operations at parse time with a clear error | 1 | 📋 queued |
-| medium | feature | Make security scheme selection deterministic when multiple schemes are defined in a spec | 2 | 📋 queued |
-| medium | feature | Support @noauth proto annotation to generate unauthenticated gRPC CLIs | 2 | 📋 queued |
-| medium | feature | Embed the actual Go toolchain version in generated go.mod instead of hardcoded 'go 1.21' | 2 | 📋 queued |
-| medium | feature | Exclude enum values and oneof block field lines from proto message field extraction | 2 | 📋 queued |
-| medium | spike | Spike: evaluate replacing regex-based proto parser with a proper AST/depth-aware parser | 5 | 📋 queued |
+| medium | feature | Fix 'bawarchi info' output: 'Source:' label is printed twice for two different values | 1 | ⏳ dispatched |
+| medium | feature | Reject specs that define no operations at parse time with a clear error | 1 | ⏳ dispatched |
+| medium | feature | Make security scheme selection deterministic when multiple schemes are defined in a spec | 2 | ⏳ dispatched |
+| medium | feature | Support @noauth proto annotation to generate unauthenticated gRPC CLIs | 2 | ⏳ dispatched |
+| medium | feature | Embed the actual Go toolchain version in generated go.mod instead of hardcoded 'go 1.21' | 2 | ⏳ dispatched |
+| medium | feature | Exclude enum values and oneof block field lines from proto message field extraction | 2 | ⏳ dispatched |
+| medium | spike | Spike: evaluate replacing regex-based proto parser with a proper AST/depth-aware parser | 5 | ⏳ dispatched |
+| medium | feature | Make registry name lookup case-insensitive to prevent duplicate entries | 1 | 📋 queued |
+| medium | feature | Clean up install symlink when running 'bawarchi remove' | 2 | 📋 queued |
+| medium | feature | Support OpenAPI header parameters in generated REST CLIs | 3 | 📋 queued |
 | low | spike | Spike: design server/environment selection for multi-server OpenAPI specs | 5 | ⏳ dispatched |
 | low | feature | Add --version flag to the bawarchi root command | 1 | ⏳ dispatched |
 | low | feature | Standardize exit codes in generated CLIs: distinguish client errors (4xx) from server errors (5xx) | 2 | ⏳ dispatched |
 | low | feature | Add --dry-run flag to 'bawarchi add' to preview generated source without compiling or registering | 2 | ⏳ dispatched |
-| low | feature | Discard 'go mod tidy' and 'go build' stdout in compiler to avoid polluting user's stderr stream | 1 | 📋 queued |
-| low | feature | Cache raw spec bytes to SpecDir on 'bawarchi add' and use cached copy as fallback on 'bawarchi update' | 3 | 📋 queued |
+| low | feature | Discard 'go mod tidy' and 'go build' stdout in compiler to avoid polluting user's stderr stream | 1 | ⏳ dispatched |
+| low | feature | Cache raw spec bytes to SpecDir on 'bawarchi add' and use cached copy as fallback on 'bawarchi update' | 3 | ⏳ dispatched |
+| low | feature | Sort tags before building commands for deterministic tag order in generated CLIs | 1 | 📋 queued |

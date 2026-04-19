@@ -3,7 +3,9 @@ package parser
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -108,39 +110,101 @@ func ParseOpenAPI(data []byte) (*CLIData, error) {
 }
 
 // authFromSchemes derives auth env var and Go code snippet from OpenAPI 3.x security schemes.
+//
+// Priority order (highest wins):
+//
+//	1 – http/bearer
+//	2 – http/basic
+//	3 – apiKey/header
+//	4 – apiKey/query
+//
+// Iterating over a sorted slice of scheme names ensures the selection is
+// deterministic regardless of Go's map-iteration order.
 func authFromSchemes(schemes map[string]oaSecurityScheme, apiName string) (envVar, setup string) {
 	prefix := strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(apiName, "_"))
 	envVar = prefix + "__API_KEY"
 
-	for schemeName, s := range schemes {
+	// Priority constants – lower value wins.
+	const (
+		prioBearer   = 1
+		prioBasic    = 2
+		prioAPIKeyH  = 3
+		prioAPIKeyQ  = 4
+		prioNone     = 99
+	)
+
+	type candidate struct {
+		prio       int
+		envVar     string
+		setup      string
+		schemeName string
+	}
+	best := candidate{prio: prioNone}
+
+	// Collect and sort scheme names for deterministic iteration.
+	names := make([]string, 0, len(schemes))
+	for n := range schemes {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+
+	for _, schemeName := range names {
+		s := schemes[schemeName]
 		switch s.Type {
 		case "http":
-			if strings.EqualFold(s.Scheme, "basic") {
+			if strings.EqualFold(s.Scheme, "bearer") && prioBearer < best.prio {
+				best = candidate{
+					prio:       prioBearer,
+					envVar:     prefix + "__TOKEN",
+					setup:      `req.Header.Set("Authorization", "Bearer "+key)`,
+					schemeName: schemeName,
+				}
+			}
+			if strings.EqualFold(s.Scheme, "basic") && prioBasic < best.prio {
 				// key should be "email:apikey" — base64 encoded for Basic auth
 				// Caller must set AuthImport = "encoding/base64"
-				return prefix + "__CREDENTIALS",
-					`req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(key)))`
-			}
-			if strings.EqualFold(s.Scheme, "bearer") {
-				return prefix + "__TOKEN", `req.Header.Set("Authorization", "Bearer "+key)`
+				best = candidate{
+					prio:       prioBasic,
+					envVar:     prefix + "__CREDENTIALS",
+					setup:      `req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(key)))`,
+					schemeName: schemeName,
+				}
 			}
 		case "apiKey":
-			if s.In == "header" {
+			if s.In == "header" && prioAPIKeyH < best.prio {
 				h := firstNonEmpty(s.Name, "Authorization")
+				var s string
 				if strings.EqualFold(h, "authorization") {
 					// Authorization header always needs a scheme prefix.
-					// Use the security scheme name (e.g. "GenieKey", "Bearer").
-					return envVar, fmt.Sprintf(`req.Header.Set("Authorization", %q+" "+key)`, schemeName)
+					// Use the winning security scheme name (e.g. "GenieKey", "Bearer").
+					s = fmt.Sprintf(`req.Header.Set("Authorization", %q+" "+key)`, schemeName)
+				} else {
+					s = fmt.Sprintf(`req.Header.Set(%q, key)`, h)
 				}
-				return envVar, fmt.Sprintf(`req.Header.Set(%q, key)`, h)
+				best = candidate{
+					prio:       prioAPIKeyH,
+					envVar:     envVar,
+					setup:      s,
+					schemeName: schemeName,
+				}
 			}
-			if s.In == "query" {
+			if s.In == "query" && prioAPIKeyQ < best.prio {
 				// The spec expects the key as a URL query param, but credentials in
 				// URLs are exposed in server logs, browser history, and referrer
 				// headers. Pass the key via the Authorization header instead.
-				return envVar, `req.Header.Set("Authorization", "Bearer "+key)`
+				best = candidate{
+					prio:       prioAPIKeyQ,
+					envVar:     envVar,
+					setup:      `req.Header.Set("Authorization", "Bearer "+key)`,
+					schemeName: schemeName,
+				}
 			}
 		}
+	}
+
+	if best.prio < prioNone {
+		fmt.Fprintf(os.Stderr, "bawarchi: using security scheme %q for authentication\n", best.schemeName)
+		return best.envVar, best.setup
 	}
 	return envVar, `req.Header.Set("Authorization", "Bearer "+key)`
 }
