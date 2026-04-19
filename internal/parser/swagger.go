@@ -3,6 +3,7 @@ package parser
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -67,7 +68,16 @@ func ParseSwagger(data []byte) (*CLIData, error) {
 func swagger2BaseURL(spec swagger2Spec) string {
 	scheme := "https"
 	if len(spec.Schemes) > 0 {
-		scheme = spec.Schemes[0]
+		scheme = "http" // fallback if https not found
+		for _, s := range spec.Schemes {
+			if s == "https" {
+				scheme = "https"
+				break
+			}
+		}
+		if scheme == "http" {
+			fmt.Fprintln(os.Stderr, "warning: swagger spec does not list 'https'; falling back to http — traffic will not be encrypted")
+		}
 	}
 	base := scheme + "://" + spec.Host
 	if spec.BasePath != "" && spec.BasePath != "/" {
