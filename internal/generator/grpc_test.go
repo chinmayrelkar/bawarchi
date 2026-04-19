@@ -139,3 +139,83 @@ func TestGRPCTemplateServiceHintInPrintUsage(t *testing.T) {
 		t.Error("@service hint must appear inside the printUsage function body")
 	}
 }
+
+// noAuthGRPCData returns CLIData with AuthEnvVar="" (simulating @noauth proto).
+func noAuthGRPCData() *parser.CLIData {
+	d := minimalGRPCData()
+	d.AuthEnvVar = ""
+	return d
+}
+
+// TestGRPCTemplate_NoAuth_NoAuthStrings verifies that when AuthEnvVar is empty
+// the generated code contains none of the auth-specific strings.
+func TestGRPCTemplate_NoAuth_NoAuthStrings(t *testing.T) {
+	src, err := generateGRPC(noAuthGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	code := string(src)
+
+	if strings.Contains(code, "Authorization: Bearer") {
+		t.Error("noauth generated code must not contain 'Authorization: Bearer'")
+	}
+	if strings.Contains(code, "is not set") {
+		t.Error("noauth generated code must not contain 'is not set'")
+	}
+	if strings.Contains(code, "os.Getenv(authEnvVar)") {
+		t.Error("noauth generated code must not contain 'os.Getenv(authEnvVar)'")
+	}
+}
+
+// TestGRPCTemplate_NoAuth_NoAuthEnvVarConst verifies that when AuthEnvVar is
+// empty the authEnvVar const is not declared (preventing unused-identifier errors).
+func TestGRPCTemplate_NoAuth_NoAuthEnvVarConst(t *testing.T) {
+	src, err := generateGRPC(noAuthGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	code := string(src)
+
+	if strings.Contains(code, "authEnvVar") {
+		t.Error("noauth generated code must not declare or reference authEnvVar")
+	}
+}
+
+// TestGRPCTemplate_WithAuth_AllAuthStrings verifies that when AuthEnvVar is set
+// the generated code contains all three auth-specific strings.
+func TestGRPCTemplate_WithAuth_AllAuthStrings(t *testing.T) {
+	src, err := generateGRPC(minimalGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	code := string(src)
+
+	if !strings.Contains(code, "Authorization: Bearer") {
+		t.Error("auth generated code must contain 'Authorization: Bearer'")
+	}
+	if !strings.Contains(code, "is not set") {
+		t.Error("auth generated code must contain 'is not set'")
+	}
+	if !strings.Contains(code, "os.Getenv(authEnvVar)") {
+		t.Error("auth generated code must contain 'os.Getenv(authEnvVar)'")
+	}
+}
+
+// TestGRPCTemplate_NoAuth_ServiceHintStillPresent verifies that even with
+// @noauth the @service hint remains unconditionally inside printUsage.
+func TestGRPCTemplate_NoAuth_ServiceHintStillPresent(t *testing.T) {
+	src, err := generateGRPC(noAuthGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	code := string(src)
+
+	printUsageIdx := strings.Index(code, "func printUsage()")
+	if printUsageIdx == -1 {
+		t.Fatal("generated code must contain 'func printUsage()'")
+	}
+	afterPrintUsage := code[printUsageIdx:]
+	if !strings.Contains(afterPrintUsage, "@service") {
+		t.Error("@service hint must appear inside printUsage even when @noauth is set")
+	}
+}

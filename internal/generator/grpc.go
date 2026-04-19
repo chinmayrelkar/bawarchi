@@ -23,7 +23,9 @@ import (
 
 const (
 	serverAddr = "{{.BaseURL}}"
+{{- if .AuthEnvVar}}
 	authEnvVar = "{{.AuthEnvVar}}"
+{{- end}}
 )
 
 func main() {
@@ -53,7 +55,9 @@ func printUsage() {
 	fmt.Printf("  %-20s %s\n", "{{.Name}}", "{{safeStr .Description}}")
 {{- end}}
 	fmt.Printf("\nServer: %s\n", serverAddr)
+{{- if .AuthEnvVar}}
 	fmt.Printf("Auth:   set %s env var for bearer token (required)\n", authEnvVar)
+{{- end}}
 	fmt.Println("Hint:   use // @service: <fully.qualified.ServicePath> in your .proto to set the gRPC service prefix")
 }
 
@@ -67,6 +71,7 @@ func grpcCall(service, method string, fields map[string]string) {
 	body := string(bodyBytes)
 
 	args := []string{"-plaintext"}
+{{- if .AuthEnvVar}}
 
 	// Auth
 	key := os.Getenv(authEnvVar)
@@ -75,6 +80,7 @@ func grpcCall(service, method string, fields map[string]string) {
 		os.Exit(1)
 	}
 	args = append(args, "-H", "Authorization: Bearer "+key)
+{{- end}}
 
 	args = append(args, "-d", body, serverAddr, service+"/"+method)
 
