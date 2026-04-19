@@ -22,15 +22,6 @@ type swagger2Spec struct {
 	SecurityDefinitions map[string]oaSecurityScheme `yaml:"securityDefinitions" json:"securityDefinitions"`
 }
 
-// Swagger 2.0: type is on the parameter directly (not inside schema).
-type swagger2Parameter struct {
-	Name        string `yaml:"name" json:"name"`
-	In          string `yaml:"in" json:"in"`
-	Description string `yaml:"description" json:"description"`
-	Required    bool   `yaml:"required" json:"required"`
-	Type        string `yaml:"type" json:"type"`
-}
-
 // ParseSwagger parses a Swagger 2.0 spec.
 func ParseSwagger(data []byte) (*CLIData, error) {
 	var spec swagger2Spec
@@ -86,9 +77,10 @@ func swagger2BaseURL(spec swagger2Spec) string {
 	return base
 }
 
-// buildCommandsFromSwagger re-parses paths with Swagger 2.0-aware parameter handling.
-// Swagger 2.0 parameters have `type` directly on the parameter object; we re-unmarshal
-// each operation's parameters using swagger2Parameter to get the type correctly.
+// buildCommandsFromSwagger builds CLI commands from Swagger 2.0 paths.
+// Swagger 2.0 parameters carry `type` directly on the parameter object (oaParameter.Type).
+// OpenAPI 3.x parameters carry type inside schema (oaParameter.Schema.Type).
+// We resolve type via firstNonEmpty(raw.Type, raw.Schema.Type, "string").
 func buildCommandsFromSwagger(cli *CLIData, rawPaths map[string]oaPathItem) {
 	tagOps := map[string][]pathOp{}
 	var tagOrder []string
@@ -136,11 +128,8 @@ func buildCommandsFromSwagger(cli *CLIData, rawPaths map[string]oaPathItem) {
 				Method:      pop.method,
 				Path:        pop.path,
 			}
-			// Re-parse raw parameters as swagger2Parameter to pick up direct `type` field.
 			for _, raw := range pop.op.Parameters {
-				// raw.Name/In/Description/Required are populated from the shared oaParameter struct.
-				// raw.Schema.Type is empty in Swagger 2.0; use raw.Type (via separate re-parse below).
-				typ := swagger2ParamType(raw)
+				typ := firstNonEmpty(raw.Type, raw.Schema.Type, "string")
 				pd := makeParamData(raw.Name, raw.Description, raw.Required, typ)
 				switch raw.In {
 				case "path":
@@ -157,23 +146,6 @@ func buildCommandsFromSwagger(cli *CLIData, rawPaths map[string]oaPathItem) {
 			cli.Commands = append(cli.Commands, cmd)
 		}
 	}
-}
-
-// swagger2ParamType extracts the type from a Swagger 2.0 parameter.
-// The shared oaParameter struct has a Schema.Type field (OpenAPI 3.x) and no direct Type field.
-// To get the Swagger 2.0 `type`, we re-encode/decode the parameter through yaml.
-// This is intentional isolation: Swagger 2.0 type extraction doesn't touch OpenAPI 3.x code paths.
-func swagger2ParamType(p oaParameter) string {
-	// Re-marshal to YAML then unmarshal into swagger2Parameter to get the `type` field.
-	raw, err := yaml.Marshal(p)
-	if err != nil {
-		return "string"
-	}
-	var sp swagger2Parameter
-	if err := yaml.Unmarshal(raw, &sp); err != nil {
-		return "string"
-	}
-	return firstNonEmpty(sp.Type, "string")
 }
 
 // versionFromBytes peeks at the spec bytes to detect "swagger" vs "openapi".
