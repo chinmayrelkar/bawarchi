@@ -240,7 +240,7 @@ func cookAndRegister(data *parser.CLIData, source, baseURL string, isNew bool) e
 	binDir := registry.BinDir()
 	binPath := filepath.Join(binDir, data.Name)
 
-	if err := os.MkdirAll(binDir, 0755); err != nil {
+	if err := os.MkdirAll(binDir, 0700); err != nil {
 		return err
 	}
 
