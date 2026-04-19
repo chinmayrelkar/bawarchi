@@ -46,12 +46,16 @@ type oaOperation struct {
 	Parameters  []oaParameter `yaml:"parameters" json:"parameters"`
 }
 
-// OpenAPI 3.x: type lives inside schema.
+// oaParameter represents a parameter in both Swagger 2.0 and OpenAPI 3.x specs.
+// In Swagger 2.0, type/format live directly on the parameter object (Type, Format fields).
+// In OpenAPI 3.x, type lives inside schema (Schema.Type).
 type oaParameter struct {
 	Name        string `yaml:"name" json:"name"`
 	In          string `yaml:"in" json:"in"`
 	Description string `yaml:"description" json:"description"`
 	Required    bool   `yaml:"required" json:"required"`
+	Type        string `yaml:"type" json:"type"`
+	Format      string `yaml:"format" json:"format"`
 	Schema      struct {
 		Type string `yaml:"type" json:"type"`
 	} `yaml:"schema" json:"schema"`
