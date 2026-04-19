@@ -15,7 +15,7 @@ func ParseProto(data []byte, source string) (*CLIData, error) {
 	content := string(data)
 
 	pkg := extractProtoPackage(content)
-	serviceName, serverAddr := extractProtoOption(content)
+	servicePath, serverAddr := extractProtoOption(content)
 
 	services := extractServices(content)
 	if len(services) == 0 {
@@ -61,8 +61,8 @@ func ParseProto(data []byte, source string) (*CLIData, error) {
 				GRPCMethod:  rpc.name,
 				InputParams: params,
 			}
-			if serviceName != "" {
-				od.GRPCService = serviceName + "." + svc.name
+			if servicePath != "" {
+				od.GRPCService = servicePath + "." + svc.name
 			}
 			cmd.Operations = append(cmd.Operations, od)
 		}
@@ -104,7 +104,8 @@ var (
 	reRPC      = regexp.MustCompile(`rpc\s+(\w+)\s*\(\s*(\w+)\s*\)\s*returns\s*\(\s*(\w+)\s*\)`)
 	reMessage  = regexp.MustCompile(`(?s)message\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}`)
 	reField    = regexp.MustCompile(`(?m)^\s*(?:(repeated)\s+)?(\w+)\s+(\w+)\s*=\s*\d+\s*;`)
-	reServerOption = regexp.MustCompile(`(?m)//\s*@server:\s*(\S+)`)
+	reServerOption  = regexp.MustCompile(`(?m)//\s*@server:\s*(\S+)`)
+	reServiceOption = regexp.MustCompile(`(?m)//\s*@service:\s*(\S+)`)
 )
 
 func extractProtoPackage(content string) string {
@@ -126,6 +127,15 @@ func extractProtoOption(content string) (servicePath, serverAddr string) {
 		serverAddr = m[1]
 	} else {
 		serverAddr = "localhost:50051"
+	}
+	// Look for a comment like: // @service: com.example.v1
+	if m := reServiceOption.FindStringSubmatch(content); m != nil {
+		servicePath = m[1]
+	} else {
+		// Fallback: derive from proto package declaration (full package string)
+		if m := rePackage.FindStringSubmatch(content); m != nil {
+			servicePath = m[1]
+		}
 	}
 	return
 }
