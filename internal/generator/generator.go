@@ -8,6 +8,20 @@ import (
 	"github.com/chinmayrelkar/bawarchi/internal/parser"
 )
 
+// GenerateDry returns the generated main.go source bytes for the given CLIData
+// without writing any files to disk. It is safe to call for specs already in
+// the registry. Returns a non-nil error for unknown transports.
+func GenerateDry(data *parser.CLIData) ([]byte, error) {
+	switch data.Transport {
+	case parser.TransportREST:
+		return generateREST(data)
+	case parser.TransportGRPC:
+		return generateGRPC(data)
+	default:
+		return nil, fmt.Errorf("unknown transport: %s", data.Transport)
+	}
+}
+
 // Generate writes Go source + go.mod for the given CLIData into outDir.
 func Generate(data *parser.CLIData, outDir string) error {
 	if err := os.MkdirAll(outDir, 0755); err != nil {
