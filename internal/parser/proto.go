@@ -25,7 +25,7 @@ func ParseProto(data []byte, source string) (*CLIData, error) {
 	// Derive CLI name from package or first service
 	cliName := pkg
 	if cliName == "" {
-		cliName = toCommandName(services[0].name)
+		cliName = ToCommandName(services[0].name)
 	}
 
 	cli := &CLIData{
@@ -41,7 +41,7 @@ func ParseProto(data []byte, source string) (*CLIData, error) {
 
 	for _, svc := range services {
 		cmd := CommandData{
-			Name:        toCommandName(svc.name),
+			Name:        ToCommandName(svc.name),
 			GoName:      toPascalCase(svc.name),
 			Description: svc.name,
 		}
@@ -54,7 +54,7 @@ func ParseProto(data []byte, source string) (*CLIData, error) {
 			}
 
 			od := OperationData{
-				Name:        toCommandName(rpc.name),
+				Name:        ToCommandName(rpc.name),
 				GoName:      toPascalCase(rpc.name),
 				Description: rpc.name,
 				GRPCService: svc.name,
@@ -112,11 +112,11 @@ func extractProtoPackage(content string) string {
 	// Prefer go_package last segment
 	if m := reGoPackage.FindStringSubmatch(content); m != nil {
 		parts := strings.Split(m[1], "/")
-		return toCommandName(parts[len(parts)-1])
+		return ToCommandName(parts[len(parts)-1])
 	}
 	if m := rePackage.FindStringSubmatch(content); m != nil {
 		parts := strings.Split(m[1], ".")
-		return toCommandName(parts[len(parts)-1])
+		return ToCommandName(parts[len(parts)-1])
 	}
 	return ""
 }

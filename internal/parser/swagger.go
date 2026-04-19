@@ -43,7 +43,7 @@ func ParseSwagger(data []byte) (*CLIData, error) {
 		return nil, fmt.Errorf("spec has no info.title")
 	}
 
-	name := toCommandName(spec.Info.Title)
+	name := ToCommandName(spec.Info.Title)
 	cli := &CLIData{
 		Name:          name,
 		Description:   firstNonEmpty(spec.Info.Description, spec.Info.Title),
@@ -123,7 +123,7 @@ func buildCommandsFromSwagger(cli *CLIData, rawPaths map[string]oaPathItem) {
 
 	for _, tag := range tagOrder {
 		cmd := CommandData{
-			Name:        toCommandName(tag),
+			Name:        ToCommandName(tag),
 			GoName:      toPascalCase(tag),
 			Description: tag,
 		}

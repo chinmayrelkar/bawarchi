@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -54,7 +55,11 @@ func addCmd() *cobra.Command {
 				return fmt.Errorf("parse: %w", err)
 			}
 			if name != "" {
-				data.Name = name
+				sanitized, err := sanitizeCLIName(name)
+				if err != nil {
+					return err
+				}
+				data.Name = sanitized
 			}
 			if baseURL != "" {
 				data.BaseURL = baseURL
@@ -126,8 +131,12 @@ func updateCmd() *cobra.Command {
 		Short: "Re-fetch the spec and regenerate a CLI",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := args[0]
-			entry, err := registry.Get(name)
+			rawName := args[0]
+			sanitizedName, err := sanitizeCLIName(rawName)
+			if err != nil {
+				return err
+			}
+			entry, err := registry.Get(sanitizedName)
 			if err != nil {
 				return err
 			}
@@ -146,7 +155,7 @@ func updateCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("parse: %w", err)
 			}
-			data.Name = name
+			data.Name = sanitizedName
 			if overrideURL != "" {
 				data.BaseURL = overrideURL
 			}
@@ -155,8 +164,8 @@ func updateCmd() *cobra.Command {
 				return err
 			}
 
-			registry.Update(name, src, overrideURL) //nolint:errcheck
-			fmt.Printf("✓ %s updated\n", name)
+			registry.Update(sanitizedName, src, overrideURL) //nolint:errcheck
+			fmt.Printf("✓ %s updated\n", sanitizedName)
 			return nil
 		},
 	}
@@ -247,6 +256,17 @@ func infoCmd() *cobra.Command {
 }
 
 // --- helpers -----------------------------------------------------------------
+
+// sanitizeCLIName runs the raw name through parser.ToCommandName to neutralize
+// path separators and special characters, then validates the result is safe to
+// use as a filesystem path component.
+func sanitizeCLIName(raw string) (string, error) {
+	name := parser.ToCommandName(raw)
+	if name == "" || name == "." || name == ".." || strings.ContainsRune(name, filepath.Separator) {
+		return "", fmt.Errorf("invalid CLI name %q", raw)
+	}
+	return name, nil
+}
 
 func cookAndRegister(data *parser.CLIData, source, baseURL string, isNew bool) error {
 	srcDir := filepath.Join(registry.SrcDir(), data.Name)
