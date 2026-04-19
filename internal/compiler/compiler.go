@@ -8,7 +8,7 @@ import (
 
 // Compile runs `go build` in srcDir and writes the binary to outBin.
 func Compile(srcDir, outBin string) error {
-	if err := os.MkdirAll(srcDir, 0755); err != nil {
+	if err := os.MkdirAll(srcDir, 0700); err != nil {
 		return err
 	}
 
