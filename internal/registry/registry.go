@@ -41,14 +41,14 @@ func Load() ([]Entry, error) {
 }
 
 func Save(entries []Entry) error {
-	if err := os.MkdirAll(Dir(), 0755); err != nil {
+	if err := os.MkdirAll(Dir(), 0700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(registryFile(), data, 0644)
+	return os.WriteFile(registryFile(), data, 0600)
 }
 
 func Add(entry Entry) error {
