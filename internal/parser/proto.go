@@ -36,6 +36,11 @@ func ParseProto(data []byte, source string) (*CLIData, error) {
 		AuthEnvVar:  strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(cliName, "_")) + "__TOKEN",
 	}
 
+	// @noauth annotation: disable auth requirement for this service.
+	if reNoAuth.MatchString(content) {
+		cli.AuthEnvVar = ""
+	}
+
 	// Extract all message definitions for field lookup
 	messages := extractMessages(content)
 
@@ -106,6 +111,7 @@ var (
 	reField    = regexp.MustCompile(`(?m)^\s*(?:(repeated)\s+)?(\w+)\s+(\w+)\s*=\s*\d+\s*;`)
 	reServerOption  = regexp.MustCompile(`(?m)//\s*@server:\s*(\S+)`)
 	reServiceOption = regexp.MustCompile(`(?m)//\s*@service:\s*(\S+)`)
+	reNoAuth        = regexp.MustCompile(`(?m)//\s*@noauth\b`)
 )
 
 func extractProtoPackage(content string) string {

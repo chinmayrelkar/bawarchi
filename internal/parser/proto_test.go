@@ -5,6 +5,37 @@ import (
 	"testing"
 )
 
+// TestParseProto_NoAuth_AuthEnvVarEmpty verifies that // @noauth causes
+// CLIData.AuthEnvVar to be empty string.
+func TestParseProto_NoAuth_AuthEnvVarEmpty(t *testing.T) {
+	proto := makeProto(`// @noauth
+`, "")
+	cli, err := ParseProto(proto, "test.proto")
+	if err != nil {
+		t.Fatalf("ParseProto failed: %v", err)
+	}
+	if cli.AuthEnvVar != "" {
+		t.Errorf("AuthEnvVar = %q, want empty string when @noauth is set", cli.AuthEnvVar)
+	}
+}
+
+// TestParseProto_WithoutNoAuth_AuthEnvVarNonEmpty verifies that without @noauth
+// CLIData.AuthEnvVar is non-empty and ends with __TOKEN.
+func TestParseProto_WithoutNoAuth_AuthEnvVarNonEmpty(t *testing.T) {
+	proto := makeProto(`syntax = "proto3";
+`, "")
+	cli, err := ParseProto(proto, "test.proto")
+	if err != nil {
+		t.Fatalf("ParseProto failed: %v", err)
+	}
+	if cli.AuthEnvVar == "" {
+		t.Error("AuthEnvVar must be non-empty when @noauth is not set")
+	}
+	if !strings.HasSuffix(cli.AuthEnvVar, "__TOKEN") {
+		t.Errorf("AuthEnvVar = %q, want suffix __TOKEN", cli.AuthEnvVar)
+	}
+}
+
 // minimal proto helper
 func makeProto(header, serviceBlock string) []byte {
 	return []byte(header + `
