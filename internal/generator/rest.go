@@ -83,7 +83,12 @@ func doRequest(method, rawURL string, body io.Reader) {
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	var data []byte
+	data, err = io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading response: %v\n", err)
+		os.Exit(1)
+	}
 	var out interface{}
 	if json.Unmarshal(data, &out) == nil {
 		enc := json.NewEncoder(os.Stdout)
