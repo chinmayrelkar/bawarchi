@@ -164,7 +164,9 @@ func updateCmd() *cobra.Command {
 				return err
 			}
 
-			registry.Update(sanitizedName, src, overrideURL) //nolint:errcheck
+			if err := registry.Update(sanitizedName, src, overrideURL); err != nil {
+				return fmt.Errorf("updating registry: %w", err)
+			}
 			fmt.Printf("✓ %s updated\n", sanitizedName)
 			return nil
 		},
