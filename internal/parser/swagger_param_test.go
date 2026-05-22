@@ -90,6 +90,43 @@ func TestSwagger2Param_Number(t *testing.T) {
 	}
 }
 
+// TestSwagger2Param_NoType_DefaultsToString tests the firstNonEmpty fallback to "string"
+// when both raw.Type and raw.Schema.Type are empty (no type field in the YAML at all).
+func TestSwagger2Param_NoType_DefaultsToString(t *testing.T) {
+	// Build YAML without any type: line so both raw.Type and raw.Schema.Type are empty.
+	data := []byte(`swagger: "2.0"
+info:
+  title: Test API
+  version: "1.0"
+host: api.example.com
+basePath: /v1
+schemes:
+  - https
+paths:
+  /search:
+    get:
+      tags:
+        - search
+      summary: Search
+      operationId: search
+      parameters:
+        - name: q
+          in: query
+          required: false
+`)
+	cli, err := ParseSwagger(data)
+	if err != nil {
+		t.Fatalf("ParseSwagger returned error: %v", err)
+	}
+	param := findFirstQueryParam(t, cli)
+	if param.FlagFunc != "StringVar" {
+		t.Errorf("expected FlagFunc=StringVar when type is absent, got %q", param.FlagFunc)
+	}
+	if param.GoType != "string" {
+		t.Errorf("expected GoType=string when type is absent, got %q", param.GoType)
+	}
+}
+
 // TestOpenAPI3Param_SchemaType_Unaffected confirms that an OpenAPI 3.x integer
 // path param (type inside schema) still resolves to IntVar after the fix.
 func TestOpenAPI3Param_SchemaType_Unaffected(t *testing.T) {

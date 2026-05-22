@@ -51,16 +51,29 @@ func ParseProto(data []byte, source string) (*CLIData, error) {
 			Description: svc.name,
 		}
 
-		for _, rpc := range svc.rpcs {
+		seenNames := map[string]int{} // dedup within this service
+		for i, rpc := range svc.rpcs {
 			inputFields := messages[rpc.inputType]
 			var params []ParamData
 			for _, f := range inputFields {
 				params = append(params, protoFieldToParam(f))
 			}
 
+			opName := ToCommandName(rpc.name)
+			if opName == "" {
+				// RPC name normalizes to empty; use stable index-based fallback.
+				opName = fmt.Sprintf("rpc-%d", i)
+			} else if count, exists := seenNames[opName]; exists {
+				// Name collides after normalization; disambiguate within service.
+				seenNames[opName] = count + 1
+				opName = fmt.Sprintf("%s-%d", opName, count+1)
+			} else {
+				seenNames[opName] = 1
+			}
+
 			od := OperationData{
-				Name:        ToCommandName(rpc.name),
-				GoName:      toPascalCase(rpc.name),
+				Name:        opName,
+				GoName:      toPascalCase(opName),
 				Description: rpc.name,
 				GRPCService: svc.name,
 				GRPCMethod:  rpc.name,
