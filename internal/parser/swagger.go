@@ -101,7 +101,15 @@ func buildCommandsFromSwagger(cli *CLIData, rawPaths map[string]oaPathItem) {
 		{"DELETE", func(p oaPathItem) *oaOperation { return p.Delete }},
 	}
 
-	for path, item := range rawPaths {
+	// Collect sorted path keys first so operation order is deterministic.
+	pathKeys := make([]string, 0, len(rawPaths))
+	for p := range rawPaths {
+		pathKeys = append(pathKeys, p)
+	}
+	sort.Strings(pathKeys)
+
+	for _, path := range pathKeys {
+		item := rawPaths[path]
 		for _, m := range httpMethods {
 			op := m.get(item)
 			if op == nil {
@@ -117,6 +125,8 @@ func buildCommandsFromSwagger(cli *CLIData, rawPaths map[string]oaPathItem) {
 			tagOps[tag] = append(tagOps[tag], pathOp{method: m.name, path: path, op: op})
 		}
 	}
+	// Sort tags alphabetically so command order is deterministic.
+	sort.Strings(tagOrder)
 
 	for _, tag := range tagOrder {
 		cmd := CommandData{

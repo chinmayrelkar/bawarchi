@@ -345,3 +345,132 @@ func TestOpenAPI3_RequestBody_NoBodyParams_ForGetOp(t *testing.T) {
 		t.Errorf("GET op must have 0 BodyParams, got %d", len(op.BodyParams))
 	}
 }
+
+// TestOpenAPI3_DeterministicCommandOrder verifies that commands (tags) are
+// sorted alphabetically regardless of Go map-iteration order.
+func TestOpenAPI3_DeterministicCommandOrder(t *testing.T) {
+	spec := []byte(`openapi: "3.0.0"
+info:
+  title: Test API
+  version: "1.0"
+servers:
+  - url: https://api.example.com
+paths:
+  /zebra:
+    get:
+      tags: [zebra]
+      operationId: getZebra
+      summary: Get zebra
+  /apple:
+    get:
+      tags: [apple]
+      operationId: getApple
+      summary: Get apple
+  /mango:
+    get:
+      tags: [mango]
+      operationId: getMango
+      summary: Get mango
+`)
+	cli, err := ParseOpenAPI(spec)
+	if err != nil {
+		t.Fatalf("ParseOpenAPI: %v", err)
+	}
+	wantOrder := []string{"apple", "mango", "zebra"}
+	if len(cli.Commands) != len(wantOrder) {
+		t.Fatalf("expected %d commands, got %d", len(wantOrder), len(cli.Commands))
+	}
+	for i, want := range wantOrder {
+		if cli.Commands[i].Name != want {
+			t.Errorf("Commands[%d].Name = %q, want %q", i, cli.Commands[i].Name, want)
+		}
+	}
+}
+
+// TestOpenAPI3_DeterministicOperationOrder verifies that operations within a
+// tag are sorted by path alphabetically.
+func TestOpenAPI3_DeterministicOperationOrder(t *testing.T) {
+	spec := []byte(`openapi: "3.0.0"
+info:
+  title: Test API
+  version: "1.0"
+servers:
+  - url: https://api.example.com
+paths:
+  /z/items:
+    get:
+      tags: [items]
+      operationId: list-z
+      summary: List Z
+  /a/items:
+    get:
+      tags: [items]
+      operationId: list-a
+      summary: List A
+  /m/items:
+    get:
+      tags: [items]
+      operationId: list-m
+      summary: List M
+`)
+	cli, err := ParseOpenAPI(spec)
+	if err != nil {
+		t.Fatalf("ParseOpenAPI: %v", err)
+	}
+	if len(cli.Commands) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(cli.Commands))
+	}
+	ops := cli.Commands[0].Operations
+	wantOps := []string{"list-a", "list-m", "list-z"}
+	if len(ops) != len(wantOps) {
+		t.Fatalf("expected %d operations, got %d", len(wantOps), len(ops))
+	}
+	for i, want := range wantOps {
+		if ops[i].Name != want {
+			t.Errorf("Operations[%d].Name = %q, want %q", i, ops[i].Name, want)
+		}
+	}
+}
+
+// TestSwagger2_DeterministicCommandOrder verifies that commands (tags) are
+// sorted alphabetically in Swagger 2.0 specs.
+func TestSwagger2_DeterministicCommandOrder(t *testing.T) {
+	spec := []byte(`swagger: "2.0"
+info:
+  title: Test API
+  version: "1.0"
+host: api.example.com
+basePath: /v1
+schemes:
+  - https
+paths:
+  /z:
+    get:
+      tags: [zebra]
+      operationId: getZebra
+      summary: Get zebra
+  /a:
+    get:
+      tags: [apple]
+      operationId: getApple
+      summary: Get apple
+  /m:
+    get:
+      tags: [mango]
+      operationId: getMango
+      summary: Get mango
+`)
+	cli, err := ParseSwagger(spec)
+	if err != nil {
+		t.Fatalf("ParseSwagger: %v", err)
+	}
+	wantOrder := []string{"apple", "mango", "zebra"}
+	if len(cli.Commands) != len(wantOrder) {
+		t.Fatalf("expected %d commands, got %d", len(wantOrder), len(cli.Commands))
+	}
+	for i, want := range wantOrder {
+		if cli.Commands[i].Name != want {
+			t.Errorf("Commands[%d].Name = %q, want %q", i, cli.Commands[i].Name, want)
+		}
+	}
+}

@@ -250,7 +250,15 @@ func buildCommandsFromOps(cli *CLIData, paths map[string]oaPathItem, getParamInf
 		{"DELETE", func(p oaPathItem) *oaOperation { return p.Delete }},
 	}
 
-	for path, item := range paths {
+	// Collect sorted path keys first so operation order is deterministic.
+	pathKeys := make([]string, 0, len(paths))
+	for p := range paths {
+		pathKeys = append(pathKeys, p)
+	}
+	sort.Strings(pathKeys)
+
+	for _, path := range pathKeys {
+		item := paths[path]
 		for _, m := range httpMethods {
 			op := m.get(item)
 			if op == nil {
@@ -266,6 +274,8 @@ func buildCommandsFromOps(cli *CLIData, paths map[string]oaPathItem, getParamInf
 			tagOps[tag] = append(tagOps[tag], pathOp{method: m.name, path: path, op: op})
 		}
 	}
+	// Sort tags alphabetically so command order is deterministic.
+	sort.Strings(tagOrder)
 
 	for _, tag := range tagOrder {
 		cmd := CommandData{
