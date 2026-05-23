@@ -142,6 +142,59 @@ func TestUpdateCmdRegistryUpdateErrorIsWrapped(t *testing.T) {
 	}
 }
 
+// TestRemoveCmdCleansUpInstallSymlink verifies that 'bawarchi remove' deletes
+// the symlink recorded by 'bawarchi install'.
+func TestRemoveCmdCleansUpInstallSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Seed the registry with a minimal entry.
+	if err := registry.Add(registry.Entry{
+		Name:      "symtest",
+		Transport: "rest",
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Create a mock binary so the symlink has a valid target.
+	if err := os.MkdirAll(registry.BinDir(), 0700); err != nil {
+		t.Fatalf("MkdirAll BinDir: %v", err)
+	}
+	binPath := filepath.Join(registry.BinDir(), "symtest")
+	if err := os.WriteFile(binPath, []byte("mock"), 0700); err != nil {
+		t.Fatalf("write mock binary: %v", err)
+	}
+
+	// Simulate what 'bawarchi install' would do: create a symlink and record it.
+	installDir := filepath.Join(tmpDir, ".local", "bin")
+	if err := os.MkdirAll(installDir, 0755); err != nil {
+		t.Fatalf("MkdirAll installDir: %v", err)
+	}
+	symlinkPath := filepath.Join(installDir, "symtest")
+	if err := os.Symlink(binPath, symlinkPath); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+	if err := registry.SetInstallPath("symtest", symlinkPath); err != nil {
+		t.Fatalf("SetInstallPath: %v", err)
+	}
+
+	// Verify symlink exists before remove.
+	if _, err := os.Lstat(symlinkPath); err != nil {
+		t.Fatalf("symlink should exist before remove: %v", err)
+	}
+
+	cmd := removeCmd()
+	cmd.SetArgs([]string{"symtest"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("removeCmd: %v", err)
+	}
+
+	// Symlink must be gone after remove.
+	if _, err := os.Lstat(symlinkPath); !os.IsNotExist(err) {
+		t.Errorf("symlink %s should have been removed by removeCmd", symlinkPath)
+	}
+}
+
 // TestUpdateCmdNoNolintErrcheck verifies that the //nolint:errcheck suppression
 // has been removed from the registry.Update call site in main.go.
 func TestUpdateCmdNoNolintErrcheck(t *testing.T) {

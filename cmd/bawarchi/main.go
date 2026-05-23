@@ -203,6 +203,11 @@ func installCmd() *cobra.Command {
 			if err := os.Symlink(src, dst); err != nil {
 				return err
 			}
+			// Record the symlink path so 'bawarchi remove' can clean it up.
+			if err := registry.SetInstallPath(name, dst); err != nil {
+				// Non-fatal: symlink already exists, just couldn't persist the path.
+				fmt.Fprintf(os.Stderr, "warning: could not record install path: %v\n", err)
+			}
 
 			fmt.Printf("✓ %s → %s\n", dst, src)
 			return nil
@@ -221,11 +226,20 @@ func removeCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
+			entry, err := registry.Get(name)
+			if err != nil {
+				return err
+			}
+			installPath := entry.InstallPath
 			if err := registry.Remove(name); err != nil {
 				return err
 			}
 			os.RemoveAll(filepath.Join(registry.SrcDir(), name)) //nolint:errcheck
 			os.Remove(filepath.Join(registry.BinDir(), name))    //nolint:errcheck
+			// Remove the install symlink if one was recorded by 'bawarchi install'.
+			if installPath != "" {
+				os.Remove(installPath) //nolint:errcheck
+			}
 			fmt.Printf("✓ %s removed\n", name)
 			return nil
 		},

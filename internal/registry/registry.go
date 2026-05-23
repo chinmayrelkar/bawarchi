@@ -13,7 +13,8 @@ type Entry struct {
 	Name        string    `json:"name"`
 	SpecSource  string    `json:"spec_source"`
 	Transport   string    `json:"transport"` // "rest" or "grpc"
-	BaseURL     string    `json:"base_url,omitempty"` // overridden base URL (e.g. EU endpoint)
+	BaseURL     string    `json:"base_url,omitempty"`     // overridden base URL (e.g. EU endpoint)
+	InstallPath string    `json:"install_path,omitempty"` // path of the symlink created by 'bawarchi install'
 	AddedAt     time.Time `json:"added_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -107,6 +108,22 @@ func Update(name, specSource, baseURL string) error {
 				entries[i].BaseURL = baseURL
 			}
 			entries[i].UpdatedAt = time.Now()
+			return Save(entries)
+		}
+	}
+	return errors.New("not found: " + name)
+}
+
+// SetInstallPath records the symlink path created by 'bawarchi install' so
+// 'bawarchi remove' can clean it up automatically.
+func SetInstallPath(name, installPath string) error {
+	entries, err := Load()
+	if err != nil {
+		return err
+	}
+	for i := range entries {
+		if strings.EqualFold(entries[i].Name, name) {
+			entries[i].InstallPath = installPath
 			return Save(entries)
 		}
 	}
