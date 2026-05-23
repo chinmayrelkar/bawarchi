@@ -66,7 +66,7 @@ func printUsage() {
 	fmt.Println("Hint:   use // @service: <fully.qualified.ServicePath> in your .proto to set the gRPC service prefix")
 }
 
-func grpcCall(service, method string, fields map[string]string, plaintext bool) {
+func grpcCall(service, method string, fields map[string]interface{}, plaintext bool) {
 	// Build JSON body from fields
 	bodyBytes, err := json.Marshal(fields)
 	if err != nil {
@@ -145,10 +145,10 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 {{- end}}
 	fs.Parse(args)
 
-	fields := map[string]string{}
+	fields := map[string]interface{}{}
 {{- range .InputParams}}
 	if p{{.GoVarName}} {{.DefaultCmp}} {
-		fields["{{.Name}}"] = fmt.Sprintf("%v", p{{.GoVarName}})
+		fields["{{.Name}}"] = p{{.GoVarName}}
 	}
 {{- end}}
 	grpcCall("{{.GRPCService}}", "{{.GRPCMethod}}", fields, plaintext)
