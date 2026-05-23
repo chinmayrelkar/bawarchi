@@ -27,6 +27,7 @@ type CLIData struct {
 	AuthSetup      string // Go code snippet inserted into the generated HTTP/gRPC auth block
 	AuthImport     string // extra import needed by AuthSetup (e.g. "encoding/base64")
 	HasPathParams  bool
+	HasBodyParams  bool   // true when at least one operation carries a JSON request body
 	Commands       []CommandData
 }
 
@@ -47,6 +48,7 @@ type OperationData struct {
 	Path        string
 	PathParams  []ParamData
 	QueryParams []ParamData
+	BodyParams  []ParamData // JSON request body fields (POST/PUT/PATCH)
 
 	// gRPC
 	GRPCService string

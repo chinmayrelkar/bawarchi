@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -149,6 +150,24 @@ func buildCommandsFromSwagger(cli *CLIData, rawPaths map[string]oaPathItem) {
 					cli.HasPathParams = true
 				case "query":
 					od.QueryParams = append(od.QueryParams, pd)
+				case "body":
+					// Swagger 2.0: body param — extract properties from inline schema.
+					if raw.Schema.Ref != "" {
+						fmt.Fprintf(os.Stderr, "warning: body parameter uses $ref (%q); body params not yet supported — skipping\n", raw.Schema.Ref)
+						continue
+					}
+					propNames := make([]string, 0, len(raw.Schema.Properties))
+					for n := range raw.Schema.Properties {
+						propNames = append(propNames, n)
+					}
+					sort.Strings(propNames)
+					for _, propName := range propNames {
+						prop := raw.Schema.Properties[propName]
+						od.BodyParams = append(od.BodyParams, makeParamData(propName, prop.Description, false, prop.Type))
+					}
+					if len(od.BodyParams) > 0 {
+						cli.HasBodyParams = true
+					}
 				}
 			}
 			cmd.Operations = append(cmd.Operations, od)

@@ -41,11 +41,34 @@ type oaPathItem struct {
 }
 
 type oaOperation struct {
-	OperationID string        `yaml:"operationId" json:"operationId"`
-	Summary     string        `yaml:"summary" json:"summary"`
-	Description string        `yaml:"description" json:"description"`
-	Tags        []string      `yaml:"tags" json:"tags"`
-	Parameters  []oaParameter `yaml:"parameters" json:"parameters"`
+	OperationID string          `yaml:"operationId" json:"operationId"`
+	Summary     string          `yaml:"summary" json:"summary"`
+	Description string          `yaml:"description" json:"description"`
+	Tags        []string        `yaml:"tags" json:"tags"`
+	Parameters  []oaParameter   `yaml:"parameters" json:"parameters"`
+	RequestBody *oaRequestBody  `yaml:"requestBody" json:"requestBody"`
+}
+
+// oaRequestBody represents an OpenAPI 3.x requestBody object.
+type oaRequestBody struct {
+	Required bool                      `yaml:"required" json:"required"`
+	Content  map[string]oaMediaType    `yaml:"content" json:"content"`
+}
+
+type oaMediaType struct {
+	Schema oaBodySchema `yaml:"schema" json:"schema"`
+}
+
+// oaBodySchema covers inline object schemas and $ref.
+type oaBodySchema struct {
+	Type       string                      `yaml:"type" json:"type"`
+	Ref        string                      `yaml:"$ref" json:"$ref"`
+	Properties map[string]oaSchemaProp     `yaml:"properties" json:"properties"`
+}
+
+type oaSchemaProp struct {
+	Type        string `yaml:"type" json:"type"`
+	Description string `yaml:"description" json:"description"`
 }
 
 // oaParameter represents a parameter in both Swagger 2.0 and OpenAPI 3.x specs.
@@ -59,7 +82,9 @@ type oaParameter struct {
 	Type        string `yaml:"type" json:"type"`
 	Format      string `yaml:"format" json:"format"`
 	Schema      struct {
-		Type string `yaml:"type" json:"type"`
+		Type       string                  `yaml:"type" json:"type"`
+		Ref        string                  `yaml:"$ref" json:"$ref"`
+		Properties map[string]oaSchemaProp `yaml:"properties" json:"properties"`
 	} `yaml:"schema" json:"schema"`
 }
 
@@ -275,6 +300,27 @@ func buildCommandsFromOps(cli *CLIData, paths map[string]oaPathItem, getParamInf
 					cli.HasPathParams = true
 				case "query":
 					od.QueryParams = append(od.QueryParams, pd)
+				}
+			}
+			// OpenAPI 3.x requestBody: extract inline application/json properties.
+			if pop.op.RequestBody != nil {
+				if mt, ok := pop.op.RequestBody.Content["application/json"]; ok {
+					if mt.Schema.Ref != "" {
+						fmt.Fprintf(os.Stderr, "warning: requestBody uses $ref (%q); body params not yet supported — skipping\n", mt.Schema.Ref)
+					} else {
+						propNames := make([]string, 0, len(mt.Schema.Properties))
+						for n := range mt.Schema.Properties {
+							propNames = append(propNames, n)
+						}
+						sort.Strings(propNames)
+						for _, propName := range propNames {
+							prop := mt.Schema.Properties[propName]
+							od.BodyParams = append(od.BodyParams, makeParamData(propName, prop.Description, false, prop.Type))
+						}
+						if len(od.BodyParams) > 0 {
+							cli.HasBodyParams = true
+						}
+					}
 				}
 			}
 			cmd.Operations = append(cmd.Operations, od)

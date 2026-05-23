@@ -3,6 +3,8 @@ package generator
 import (
 	"strings"
 	"testing"
+
+	"github.com/chinmayrelkar/bawarchi/internal/parser"
 )
 
 // TestGenerateREST_NoDiscardedReadError verifies the generated doRequest no
@@ -67,6 +69,96 @@ func TestGenerateREST_ReadErrorExitsToStderr(t *testing.T) {
 	}
 	if !strings.Contains(src, "os.Exit(1)") {
 		t.Errorf("generated code does not call os.Exit(1) after io.ReadAll error")
+	}
+}
+
+// bodyRESTData returns a CLIData with a POST operation that has BodyParams,
+// mirroring what the parser produces for a spec with a JSON requestBody.
+func bodyRESTData() *parser.CLIData {
+	d := minimalRESTData()
+	d.HasBodyParams = true
+	d.Commands[0].Operations = append(d.Commands[0].Operations, parser.OperationData{
+		Name:   "create",
+		GoName: "Create",
+		Method: "POST",
+		Path:   "/pets",
+		BodyParams: []parser.ParamData{
+			{Name: "name", GoVarName: "Name", FlagName: "name", GoType: "string", FlagFunc: "StringVar", DefaultLiteral: `""`, DefaultCmp: `!= ""`},
+			{Name: "age", GoVarName: "Age", FlagName: "age", GoType: "int", FlagFunc: "IntVar", DefaultLiteral: "0", DefaultCmp: "!= 0"},
+		},
+	})
+	return d
+}
+
+// TestGenerateREST_BodyParams_BytesImport verifies that when HasBodyParams is true
+// the generated code imports "bytes".
+func TestGenerateREST_BodyParams_BytesImport(t *testing.T) {
+	out, err := generateREST(bodyRESTData())
+	if err != nil {
+		t.Fatalf("generateREST: %v", err)
+	}
+	src := string(out)
+	if !strings.Contains(src, `"bytes"`) {
+		t.Error(`generated code must import "bytes" when HasBodyParams is true`)
+	}
+}
+
+// TestGenerateREST_BodyParams_NoBytes_WhenAbsent verifies that without body params
+// the "bytes" package is NOT imported (would cause compile error).
+func TestGenerateREST_BodyParams_NoBytes_WhenAbsent(t *testing.T) {
+	out, err := generateREST(minimalRESTData())
+	if err != nil {
+		t.Fatalf("generateREST: %v", err)
+	}
+	if strings.Contains(string(out), `"bytes"`) {
+		t.Error(`generated code must NOT import "bytes" when there are no body params`)
+	}
+}
+
+// TestGenerateREST_BodyParams_BuildsMap verifies that the generated op function
+// builds a map[string]interface{} and marshals it for the request body.
+func TestGenerateREST_BodyParams_BuildsMap(t *testing.T) {
+	out, err := generateREST(bodyRESTData())
+	if err != nil {
+		t.Fatalf("generateREST: %v", err)
+	}
+	src := string(out)
+	if !strings.Contains(src, "reqBody := map[string]interface{}{}") {
+		t.Error("generated code must declare 'reqBody := map[string]interface{}{}'")
+	}
+	if !strings.Contains(src, "json.Marshal(reqBody)") {
+		t.Error("generated code must call json.Marshal(reqBody)")
+	}
+	if !strings.Contains(src, "bytes.NewReader(bodyBytes)") {
+		t.Error("generated code must pass bytes.NewReader(bodyBytes) to doRequest")
+	}
+}
+
+// TestGenerateREST_BodyParams_FlagsDeclared verifies that each body param gets
+// a flag declaration in the generated op function.
+func TestGenerateREST_BodyParams_FlagsDeclared(t *testing.T) {
+	out, err := generateREST(bodyRESTData())
+	if err != nil {
+		t.Fatalf("generateREST: %v", err)
+	}
+	src := string(out)
+	for _, flag := range []string{`"name"`, `"age"`} {
+		if !strings.Contains(src, flag) {
+			t.Errorf("generated code must declare flag %s for body param", flag)
+		}
+	}
+}
+
+// TestGenerateREST_NoBodyParams_NilBody verifies that ops without body params
+// still call doRequest with nil (not bytes.NewReader).
+func TestGenerateREST_NoBodyParams_NilBody(t *testing.T) {
+	out, err := generateREST(minimalRESTData())
+	if err != nil {
+		t.Fatalf("generateREST: %v", err)
+	}
+	src := string(out)
+	if !strings.Contains(src, "doRequest(\"GET\", u.String(), nil)") {
+		t.Error("ops without body params must call doRequest(..., nil)")
 	}
 }
 
