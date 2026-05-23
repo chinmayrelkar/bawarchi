@@ -69,3 +69,27 @@ func TestGenerateREST_ReadErrorExitsToStderr(t *testing.T) {
 		t.Errorf("generated code does not call os.Exit(1) after io.ReadAll error")
 	}
 }
+
+// TestGenerateREST_HTTPClientTimeout verifies that the generated code declares
+// a package-level http.Client with a non-zero Timeout so requests cannot hang
+// indefinitely.
+func TestGenerateREST_HTTPClientTimeout(t *testing.T) {
+	out, err := generateREST(minimalRESTData())
+	if err != nil {
+		t.Fatalf("generateREST returned error: %v", err)
+	}
+	src := string(out)
+
+	if strings.Contains(src, "http.DefaultClient") {
+		t.Error("generated code must not use http.DefaultClient (no timeout)")
+	}
+	if !strings.Contains(src, "http.Client{Timeout:") {
+		t.Error("generated code must declare an http.Client with a Timeout field")
+	}
+	if !strings.Contains(src, `"time"`) {
+		t.Error(`generated code must import "time" for the timeout duration`)
+	}
+	if !strings.Contains(src, "time.Second") {
+		t.Error("generated code must use time.Second in the Timeout value")
+	}
+}

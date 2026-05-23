@@ -18,13 +18,17 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"{{if .AuthImport}}
+	"strings"
+	"time"{{if .AuthImport}}
 	{{.AuthImport}}{{end}}
 )
 
 const authEnvVar = "{{.AuthEnvVar}}"
 
-var baseURL = "{{.BaseURL}}"
+var (
+	baseURL    = "{{.BaseURL}}"
+	httpClient = &http.Client{Timeout: 30 * time.Second}
+)
 
 func init() {
 	if v := os.Getenv("{{.BaseURLEnvVar}}"); v != "" {
@@ -77,7 +81,7 @@ func doRequest(method, rawURL string, body io.Reader) {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
