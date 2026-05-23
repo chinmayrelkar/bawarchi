@@ -216,8 +216,13 @@ func protoFieldToParam(f protoField) ParamData {
 		pd.FlagFunc = "Float64Var"
 		pd.DefaultLiteral = "0.0"
 		pd.DefaultCmp = "!= 0.0"
+	case "bool":
+		pd.GoType = "bool"
+		pd.FlagFunc = "BoolVar"
+		pd.DefaultLiteral = "false"
+		pd.DefaultCmp = "!= false"
 	default:
-		// string, bytes, bool, message types — treat as string
+		// string, bytes, message types — treat as string
 		pd.GoType = "string"
 		pd.FlagFunc = "StringVar"
 		pd.DefaultLiteral = `""`

@@ -203,6 +203,59 @@ func TestParseProto_BaseURLEnvVarSet(t *testing.T) {
 	}
 }
 
+// TestProtoFieldToParam_BoolType verifies that proto bool fields produce a BoolVar flag
+// with Go type bool, not string.
+func TestProtoFieldToParam_BoolType(t *testing.T) {
+	proto := []byte(`// @server: localhost:50051
+syntax = "proto3";
+service Toggle {
+  rpc SetFlag (FlagRequest) returns (FlagReply);
+}
+message FlagRequest {
+  bool enabled = 1;
+  string label  = 2;
+  int32  count  = 3;
+}
+message FlagReply { bool ok = 1; }
+`)
+	cli, err := ParseProto(proto, "test.proto")
+	if err != nil {
+		t.Fatalf("ParseProto failed: %v", err)
+	}
+	params := cli.Commands[0].Operations[0].InputParams
+
+	want := []struct {
+		name    string
+		goType  string
+		flagFunc string
+		defLit  string
+		defCmp  string
+	}{
+		{"enabled", "bool", "BoolVar", "false", "!= false"},
+		{"label", "string", "StringVar", `""`, `!= ""`},
+		{"count", "int", "IntVar", "0", "!= 0"},
+	}
+
+	if len(params) != len(want) {
+		t.Fatalf("got %d params, want %d", len(params), len(want))
+	}
+	for i, w := range want {
+		p := params[i]
+		if p.GoType != w.goType {
+			t.Errorf("param[%d] %q GoType = %q, want %q", i, w.name, p.GoType, w.goType)
+		}
+		if p.FlagFunc != w.flagFunc {
+			t.Errorf("param[%d] %q FlagFunc = %q, want %q", i, w.name, p.FlagFunc, w.flagFunc)
+		}
+		if p.DefaultLiteral != w.defLit {
+			t.Errorf("param[%d] %q DefaultLiteral = %q, want %q", i, w.name, p.DefaultLiteral, w.defLit)
+		}
+		if p.DefaultCmp != w.defCmp {
+			t.Errorf("param[%d] %q DefaultCmp = %q, want %q", i, w.name, p.DefaultCmp, w.defCmp)
+		}
+	}
+}
+
 // TestParseProto_ServerAnnotation_NoWarning verifies that when a @server: annotation is
 // present, no warning is written to stderr.
 func TestParseProto_ServerAnnotation_NoWarning(t *testing.T) {

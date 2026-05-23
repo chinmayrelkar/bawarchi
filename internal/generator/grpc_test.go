@@ -268,8 +268,8 @@ func TestGenerateGRPC_PlaintextSignature(t *testing.T) {
 	}
 	got := string(src)
 
-	if !strings.Contains(got, "func grpcCall(service, method string, fields map[string]string, plaintext bool)") {
-		t.Errorf("grpcCall must accept 'plaintext bool' parameter; got source:\n%s", got)
+	if !strings.Contains(got, "func grpcCall(service, method string, fields map[string]interface{}, plaintext bool)") {
+		t.Errorf("grpcCall must accept 'plaintext bool' parameter and use map[string]interface{}; got source:\n%s", got)
 	}
 }
 
@@ -335,5 +335,66 @@ func TestGenerateGRPC_InitOverridesServerAddr(t *testing.T) {
 	want := `os.Getenv("TESTCLI__BASE_URL")`
 	if !strings.Contains(got, want) {
 		t.Errorf("expected %q in generated source; got:\n%s", want, got)
+	}
+}
+
+// TestGenerateGRPC_NativeTypeMap verifies that the fields map uses interface{}
+// so json.Marshal emits native JSON types (42 not "42", true not "true").
+func TestGenerateGRPC_NativeTypeMap(t *testing.T) {
+	src, err := generateGRPC(minimalGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	got := string(src)
+
+	if !strings.Contains(got, "map[string]interface{}{}") {
+		t.Error("fields must be map[string]interface{}{} to emit native JSON types")
+	}
+	if strings.Contains(got, "map[string]string{}") {
+		t.Error("fields must not be map[string]string{} (would quote all values)")
+	}
+	if strings.Contains(got, "fmt.Sprintf") {
+		t.Error("generated code must not use fmt.Sprintf to stringify field values")
+	}
+}
+
+// typedGRPCData returns CLIData with int, float, and bool fields to test native type emission.
+func typedGRPCData() *parser.CLIData {
+	d := minimalGRPCData()
+	d.Commands[0].Operations[0].InputParams = []parser.ParamData{
+		{
+			Name: "count", GoVarName: "Count", FlagName: "count",
+			GoType: "int", FlagFunc: "IntVar", DefaultLiteral: "0", DefaultCmp: "!= 0",
+		},
+		{
+			Name: "score", GoVarName: "Score", FlagName: "score",
+			GoType: "float64", FlagFunc: "Float64Var", DefaultLiteral: "0.0", DefaultCmp: "!= 0.0",
+		},
+		{
+			Name: "enabled", GoVarName: "Enabled", FlagName: "enabled",
+			GoType: "bool", FlagFunc: "BoolVar", DefaultLiteral: "false", DefaultCmp: "!= false",
+		},
+	}
+	return d
+}
+
+// TestGenerateGRPC_TypedFieldsNativeAssignment verifies that int/float/bool fields
+// are assigned directly to the interface{} map without fmt.Sprintf wrapping.
+func TestGenerateGRPC_TypedFieldsNativeAssignment(t *testing.T) {
+	src, err := generateGRPC(typedGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	got := string(src)
+
+	// Each param must be assigned directly, not via fmt.Sprintf
+	for _, param := range []string{"pCount", "pScore", "pEnabled"} {
+		direct := `fields["` + strings.ToLower(param[1:]) + `"] = ` + param
+		if !strings.Contains(got, direct) {
+			t.Errorf("expected direct assignment %q in generated source", direct)
+		}
+	}
+	if strings.Contains(got, "fmt.Sprintf") {
+		t.Error("generated code must not use fmt.Sprintf to stringify typed fields")
 	}
 }
