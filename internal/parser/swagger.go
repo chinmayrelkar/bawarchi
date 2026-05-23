@@ -160,6 +160,8 @@ func buildCommandsFromSwagger(cli *CLIData, rawPaths map[string]oaPathItem) {
 					cli.HasPathParams = true
 				case "query":
 					od.QueryParams = append(od.QueryParams, pd)
+				case "header":
+					od.HeaderParams = append(od.HeaderParams, pd)
 				case "body":
 					// Swagger 2.0: body param — extract properties from inline schema.
 					if raw.Schema.Ref != "" {

@@ -310,6 +310,8 @@ func buildCommandsFromOps(cli *CLIData, paths map[string]oaPathItem, getParamInf
 					cli.HasPathParams = true
 				case "query":
 					od.QueryParams = append(od.QueryParams, pd)
+				case "header":
+					od.HeaderParams = append(od.HeaderParams, pd)
 				}
 			}
 			// OpenAPI 3.x requestBody: extract inline application/json properties.
