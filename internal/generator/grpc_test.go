@@ -11,11 +11,12 @@ import (
 // multiple test cases.
 func minimalGRPCData() *parser.CLIData {
 	return &parser.CLIData{
-		Name:        "testcli",
-		Description: "Test CLI",
-		BaseURL:     "localhost:50051",
-		AuthEnvVar:  "TEST_API_KEY",
-		Transport:   parser.TransportGRPC,
+		Name:          "testcli",
+		Description:   "Test CLI",
+		BaseURL:       "localhost:50051",
+		BaseURLEnvVar: "TESTCLI__SERVER_ADDR",
+		AuthEnvVar:    "TEST_API_KEY",
+		Transport:     parser.TransportGRPC,
 		Commands: []parser.CommandData{
 			{
 				Name:   "greet",
@@ -217,5 +218,122 @@ func TestGRPCTemplate_NoAuth_ServiceHintStillPresent(t *testing.T) {
 	afterPrintUsage := code[printUsageIdx:]
 	if !strings.Contains(afterPrintUsage, "@service") {
 		t.Error("@service hint must appear inside printUsage even when @noauth is set")
+	}
+}
+
+// TestGenerateGRPC_PlaintextVarDecl verifies that serverAddr is declared as a var, not a const.
+func TestGenerateGRPC_PlaintextVarDecl(t *testing.T) {
+	src, err := generateGRPC(minimalGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	got := string(src)
+
+	if !strings.Contains(got, "var serverAddr =") {
+		t.Errorf("expected 'var serverAddr =' in generated source, got:\n%s", got)
+	}
+	if strings.Contains(got, "const serverAddr") {
+		t.Errorf("serverAddr must not be a const in generated source")
+	}
+}
+
+// TestGenerateGRPC_PlaintextInitBlock verifies the init() function is present and
+// references the BaseURLEnvVar template variable.
+func TestGenerateGRPC_PlaintextInitBlock(t *testing.T) {
+	data := minimalGRPCData()
+	data.BaseURLEnvVar = "TESTCLI__SERVER_ADDR"
+
+	src, err := generateGRPC(data)
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	got := string(src)
+
+	if !strings.Contains(got, "func init()") {
+		t.Errorf("expected 'func init()' in generated source")
+	}
+	if !strings.Contains(got, `os.Getenv("TESTCLI__SERVER_ADDR")`) {
+		t.Errorf("expected os.Getenv(\"TESTCLI__SERVER_ADDR\") in init block; got:\n%s", got)
+	}
+	if !strings.Contains(got, "serverAddr = v") {
+		t.Errorf("expected 'serverAddr = v' assignment in init block")
+	}
+}
+
+// TestGenerateGRPC_PlaintextSignature verifies grpcCall accepts a plaintext bool parameter.
+func TestGenerateGRPC_PlaintextSignature(t *testing.T) {
+	src, err := generateGRPC(minimalGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	got := string(src)
+
+	if !strings.Contains(got, "func grpcCall(service, method string, fields map[string]string, plaintext bool)") {
+		t.Errorf("grpcCall must accept 'plaintext bool' parameter; got source:\n%s", got)
+	}
+}
+
+// TestGenerateGRPC_PlaintextAuthGuard verifies the security guard that prevents
+// sending bearer tokens over plaintext connections.
+func TestGenerateGRPC_PlaintextAuthGuard(t *testing.T) {
+	src, err := generateGRPC(minimalGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	got := string(src)
+
+	if !strings.Contains(got, "cleartext") {
+		t.Errorf("expected plaintext+auth guard message (mentioning cleartext) in generated source")
+	}
+	if !strings.Contains(got, "os.Exit(1)") {
+		t.Errorf("expected os.Exit(1) in grpcCall body for guard")
+	}
+
+	// Guard must appear BEFORE the exec.Command("grpcurl", ...) call
+	guardIdx := strings.Index(got, "plaintext {")
+	execIdx := strings.Index(got, `exec.Command("grpcurl"`)
+	if guardIdx == -1 {
+		t.Errorf("expected plaintext guard block in generated source")
+	}
+	if execIdx == -1 {
+		t.Errorf("expected exec.Command(\"grpcurl\") in generated source")
+	}
+	if guardIdx != -1 && execIdx != -1 && guardIdx > execIdx {
+		t.Errorf("plaintext+auth guard must appear before exec.Command line")
+	}
+}
+
+// TestGenerateGRPC_PlaintextConditionalAppend verifies -plaintext is only appended
+// conditionally (not hardcoded unconditionally).
+func TestGenerateGRPC_PlaintextConditionalAppend(t *testing.T) {
+	src, err := generateGRPC(minimalGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	got := string(src)
+
+	if strings.Contains(got, `[]string{"-plaintext"}`) {
+		t.Errorf("generated source must not contain hardcoded []string{\"-plaintext\"}")
+	}
+	if !strings.Contains(got, `append(args, "-plaintext")`) {
+		t.Errorf("expected conditional append(args, \"-plaintext\") in generated source")
+	}
+}
+
+// TestGenerateGRPC_InitOverridesServerAddr verifies the init() block renders the
+// BaseURLEnvVar substitution so os.Getenv reads the correct env var name.
+func TestGenerateGRPC_InitOverridesServerAddr(t *testing.T) {
+	data := minimalGRPCData()
+	data.BaseURLEnvVar = "TESTCLI__BASE_URL"
+
+	src, err := generateGRPC(data)
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	got := string(src)
+
+	want := `os.Getenv("TESTCLI__BASE_URL")`
+	if !strings.Contains(got, want) {
+		t.Errorf("expected %q in generated source; got:\n%s", want, got)
 	}
 }
