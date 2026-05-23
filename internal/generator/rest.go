@@ -67,7 +67,7 @@ func printUsage() {
 	fmt.Printf("Base URL: %s (override with %s)\n", baseURL, "{{.BaseURLEnvVar}}")
 }
 
-func doRequest(method, rawURL string, body io.Reader) {
+func doRequest(method, rawURL string, body io.Reader, headers map[string]string) {
 	key := os.Getenv(authEnvVar)
 	if key == "" {
 		fmt.Fprintf(os.Stderr, "error: %s not set\n", authEnvVar)
@@ -81,6 +81,9 @@ func doRequest(method, rawURL string, body io.Reader) {
 	{{.AuthSetup}}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -148,6 +151,10 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 	var p{{.GoVarName}} {{.GoType}} = {{.DefaultLiteral}}
 	fs.{{.FlagFunc}}(&p{{.GoVarName}}, "{{.FlagName}}", {{.DefaultLiteral}}, "{{safeStr .Description}}")
 {{- end}}
+{{- range .HeaderParams}}
+	var p{{.GoVarName}} string
+	fs.StringVar(&p{{.GoVarName}}, "{{.FlagName}}", "", "{{safeStr .Description}} (HTTP header)")
+{{- end}}
 	fs.Parse(args)
 {{range .PathParams}}
 	if p{{.GoVarName}} == "" {
@@ -171,6 +178,14 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 	}
 {{- end}}
 	u.RawQuery = q.Encode()
+{{- if .HeaderParams}}
+	hdrs := map[string]string{}
+{{- range .HeaderParams}}
+	if p{{.GoVarName}} != "" {
+		hdrs["{{.Name}}"] = p{{.GoVarName}}
+	}
+{{- end}}
+{{- end}}
 {{- if .BodyParams}}
 	reqBody := map[string]interface{}{}
 {{- range .BodyParams}}
@@ -183,9 +198,9 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 		fmt.Fprintf(os.Stderr, "error building request body: %v\n", err)
 		os.Exit(1)
 	}
-	doRequest("{{.Method}}", u.String(), bytes.NewReader(bodyBytes))
+	doRequest("{{.Method}}", u.String(), bytes.NewReader(bodyBytes), {{if .HeaderParams}}hdrs{{else}}nil{{end}})
 {{- else}}
-	doRequest("{{.Method}}", u.String(), nil)
+	doRequest("{{.Method}}", u.String(), nil, {{if .HeaderParams}}hdrs{{else}}nil{{end}})
 {{- end}}
 }
 {{end}}{{end}}`

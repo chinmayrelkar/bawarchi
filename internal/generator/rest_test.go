@@ -129,7 +129,7 @@ func TestGenerateREST_BodyParams_BuildsMap(t *testing.T) {
 	if !strings.Contains(src, "json.Marshal(reqBody)") {
 		t.Error("generated code must call json.Marshal(reqBody)")
 	}
-	if !strings.Contains(src, "bytes.NewReader(bodyBytes)") {
+	if !strings.Contains(src, "bytes.NewReader(bodyBytes),") {
 		t.Error("generated code must pass bytes.NewReader(bodyBytes) to doRequest")
 	}
 }
@@ -150,15 +150,75 @@ func TestGenerateREST_BodyParams_FlagsDeclared(t *testing.T) {
 }
 
 // TestGenerateREST_NoBodyParams_NilBody verifies that ops without body params
-// still call doRequest with nil (not bytes.NewReader).
+// still call doRequest with nil for both body and headers.
 func TestGenerateREST_NoBodyParams_NilBody(t *testing.T) {
 	out, err := generateREST(minimalRESTData())
 	if err != nil {
 		t.Fatalf("generateREST: %v", err)
 	}
 	src := string(out)
-	if !strings.Contains(src, "doRequest(\"GET\", u.String(), nil)") {
-		t.Error("ops without body params must call doRequest(..., nil)")
+	if !strings.Contains(src, "doRequest(\"GET\", u.String(), nil, nil)") {
+		t.Error("ops without body or header params must call doRequest(..., nil, nil)")
+	}
+}
+
+// headerRESTData returns a CLIData with a GET operation that has one header param.
+func headerRESTData() *parser.CLIData {
+	d := minimalRESTData()
+	d.Commands[0].Operations[0].HeaderParams = []parser.ParamData{
+		{Name: "X-Tenant-ID", GoVarName: "XTenantID", FlagName: "x-tenant-id", GoType: "string", FlagFunc: "StringVar", DefaultLiteral: `""`, DefaultCmp: `!= ""`},
+	}
+	return d
+}
+
+// TestGenerateREST_HeaderParams_FlagDeclared verifies that a header param gets
+// a StringVar flag declaration in the generated op function.
+func TestGenerateREST_HeaderParams_FlagDeclared(t *testing.T) {
+	out, err := generateREST(headerRESTData())
+	if err != nil {
+		t.Fatalf("generateREST: %v", err)
+	}
+	src := string(out)
+	if !strings.Contains(src, `"x-tenant-id"`) {
+		t.Error(`generated code must declare flag "x-tenant-id" for header param X-Tenant-ID`)
+	}
+}
+
+// TestGenerateREST_HeaderParams_BuildsMap verifies that when header params are
+// present the generated op function builds a hdrs map and passes it to doRequest.
+func TestGenerateREST_HeaderParams_BuildsMap(t *testing.T) {
+	out, err := generateREST(headerRESTData())
+	if err != nil {
+		t.Fatalf("generateREST: %v", err)
+	}
+	src := string(out)
+	if !strings.Contains(src, `hdrs := map[string]string{}`) {
+		t.Error(`generated code must declare 'hdrs := map[string]string{}'`)
+	}
+	if !strings.Contains(src, `hdrs["X-Tenant-ID"]`) {
+		t.Errorf("generated code must set hdrs[%q]", "X-Tenant-ID")
+	}
+	if !strings.Contains(src, "doRequest(\"GET\", u.String(), nil, hdrs)") {
+		t.Error("generated code must pass hdrs as headers arg to doRequest")
+	}
+}
+
+// TestGenerateREST_HeaderParams_DoRequestAcceptsMap verifies that doRequest
+// has a headers map[string]string parameter and iterates over it.
+func TestGenerateREST_HeaderParams_DoRequestAcceptsMap(t *testing.T) {
+	out, err := generateREST(minimalRESTData())
+	if err != nil {
+		t.Fatalf("generateREST: %v", err)
+	}
+	src := string(out)
+	if !strings.Contains(src, "func doRequest(method, rawURL string, body io.Reader, headers map[string]string)") {
+		t.Error("doRequest must accept a 'headers map[string]string' parameter")
+	}
+	if !strings.Contains(src, "for k, v := range headers") {
+		t.Error("doRequest must iterate over headers with 'for k, v := range headers'")
+	}
+	if !strings.Contains(src, "req.Header.Set(k, v)") {
+		t.Error("doRequest must call req.Header.Set(k, v) for each custom header")
 	}
 }
 

@@ -44,11 +44,12 @@ type OperationData struct {
 	Description string
 
 	// REST
-	Method      string
-	Path        string
-	PathParams  []ParamData
-	QueryParams []ParamData
-	BodyParams  []ParamData // JSON request body fields (POST/PUT/PATCH)
+	Method       string
+	Path         string
+	PathParams   []ParamData
+	QueryParams  []ParamData
+	HeaderParams []ParamData // HTTP header fields (in: header)
+	BodyParams   []ParamData // JSON request body fields (POST/PUT/PATCH)
 
 	// gRPC
 	GRPCService string

@@ -474,3 +474,84 @@ paths:
 		}
 	}
 }
+
+// TestOpenAPI3_HeaderParam_Parsed verifies that an OpenAPI 3.x parameter with
+// in: header is stored in OperationData.HeaderParams (not QueryParams/PathParams).
+func TestOpenAPI3_HeaderParam_Parsed(t *testing.T) {
+	spec := []byte(`openapi: "3.0.0"
+info:
+  title: Test API
+  version: "1.0"
+servers:
+  - url: https://api.example.com
+paths:
+  /items:
+    get:
+      tags: [items]
+      operationId: listItems
+      parameters:
+        - name: X-Tenant-ID
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Tenant identifier
+`)
+	cli, err := ParseOpenAPI(spec)
+	if err != nil {
+		t.Fatalf("ParseOpenAPI: %v", err)
+	}
+	op := cli.Commands[0].Operations[0]
+	if len(op.HeaderParams) != 1 {
+		t.Fatalf("expected 1 HeaderParam, got %d: %v", len(op.HeaderParams), op.HeaderParams)
+	}
+	if op.HeaderParams[0].Name != "X-Tenant-ID" {
+		t.Errorf("HeaderParams[0].Name = %q, want %q", op.HeaderParams[0].Name, "X-Tenant-ID")
+	}
+	if len(op.QueryParams) != 0 {
+		t.Errorf("header param must not appear in QueryParams")
+	}
+	if len(op.PathParams) != 0 {
+		t.Errorf("header param must not appear in PathParams")
+	}
+}
+
+// TestSwagger2_HeaderParam_Parsed verifies that a Swagger 2.0 parameter with
+// in: header is stored in OperationData.HeaderParams.
+func TestSwagger2_HeaderParam_Parsed(t *testing.T) {
+	spec := []byte(`swagger: "2.0"
+info:
+  title: Test API
+  version: "1.0"
+host: api.example.com
+basePath: /v1
+schemes:
+  - https
+paths:
+  /items:
+    get:
+      tags:
+        - items
+      operationId: listItems
+      parameters:
+        - name: X-Request-ID
+          in: header
+          required: false
+          type: string
+          description: Request correlation ID
+`)
+	cli, err := ParseSwagger(spec)
+	if err != nil {
+		t.Fatalf("ParseSwagger: %v", err)
+	}
+	op := cli.Commands[0].Operations[0]
+	if len(op.HeaderParams) != 1 {
+		t.Fatalf("expected 1 HeaderParam, got %d: %v", len(op.HeaderParams), op.HeaderParams)
+	}
+	if op.HeaderParams[0].Name != "X-Request-ID" {
+		t.Errorf("HeaderParams[0].Name = %q, want %q", op.HeaderParams[0].Name, "X-Request-ID")
+	}
+	if len(op.QueryParams) != 0 {
+		t.Errorf("header param must not appear in QueryParams")
+	}
+}
