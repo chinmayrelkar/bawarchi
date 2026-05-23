@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/chinmayrelkar/bawarchi/internal/parser"
 )
@@ -58,11 +60,24 @@ func Generate(data *parser.CLIData, outDir string) error {
 	return nil
 }
 
+// goVersion returns the major.minor Go toolchain version (e.g. "1.22") used to
+// run bawarchi, so generated go.mod files stay in sync with the host toolchain.
+func goVersion() string {
+	v := runtime.Version() // e.g. "go1.22.3"
+	v = strings.TrimPrefix(v, "go")
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) >= 2 {
+		return parts[0] + "." + parts[1]
+	}
+	return v
+}
+
 func goMod(data *parser.CLIData) []byte {
+	ver := goVersion()
 	if data.Transport == parser.TransportGRPC {
 		return []byte(`module bawarchi/gen/` + data.Name + `
 
-go 1.21
+go ` + ver + `
 
 require (
 	github.com/fullstorydev/grpcurl v1.9.1
@@ -72,6 +87,6 @@ require (
 	}
 	return []byte(`module bawarchi/gen/` + data.Name + `
 
-go 1.21
+go ` + ver + `
 `)
 }

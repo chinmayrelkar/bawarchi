@@ -261,11 +261,11 @@ func infoCmd() *cobra.Command {
 			}
 			fmt.Printf("Name:      %s\n", e.Name)
 			fmt.Printf("Transport: %s\n", e.Transport)
-			fmt.Printf("Source:    %s\n", e.SpecSource)
+			fmt.Printf("Spec:      %s\n", e.SpecSource)
 			fmt.Printf("Added:     %s\n", e.AddedAt.Format(time.RFC3339))
 			fmt.Printf("Updated:   %s\n", e.UpdatedAt.Format(time.RFC3339))
 			fmt.Printf("Binary:    %s\n", filepath.Join(registry.BinDir(), e.Name))
-			fmt.Printf("Source:    %s\n", filepath.Join(registry.SrcDir(), e.Name))
+			fmt.Printf("Code:      %s\n", filepath.Join(registry.SrcDir(), e.Name))
 			return nil
 		},
 	}
