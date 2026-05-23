@@ -398,3 +398,66 @@ func TestGenerateGRPC_TypedFieldsNativeAssignment(t *testing.T) {
 		t.Error("generated code must not use fmt.Sprintf to stringify typed fields")
 	}
 }
+
+// TestGenerateGRPC_GrpcurlPreflightCheck verifies the generated main() contains
+// a checkGrpcurl() call that uses exec.LookPath and emits an install hint.
+func TestGenerateGRPC_GrpcurlPreflightCheck(t *testing.T) {
+	src, err := generateGRPC(minimalGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	got := string(src)
+
+	// checkGrpcurl function must exist
+	if !strings.Contains(got, "func checkGrpcurl()") {
+		t.Error("generated code must declare func checkGrpcurl()")
+	}
+	// Must use exec.LookPath to probe grpcurl
+	if !strings.Contains(got, `exec.LookPath("grpcurl")`) {
+		t.Error(`generated code must call exec.LookPath("grpcurl") inside checkGrpcurl`)
+	}
+	// Must print an install hint
+	if !strings.Contains(got, "fullstorydev/grpcurl") {
+		t.Error("generated code must include the grpcurl install URL (fullstorydev/grpcurl)")
+	}
+	// checkGrpcurl must be called from main()
+	mainIdx := strings.Index(got, "func main()")
+	if mainIdx == -1 {
+		t.Fatal("generated code must contain func main()")
+	}
+	mainBody := got[mainIdx:]
+	if !strings.Contains(mainBody, "checkGrpcurl()") {
+		t.Error("checkGrpcurl() must be called inside main()")
+	}
+}
+
+// TestGenerateGRPC_GrpcurlCheckAfterHelp verifies that within main() the
+// checkGrpcurl() call appears AFTER the --help early-exit block so that
+// --help works even when grpcurl is not installed.
+func TestGenerateGRPC_GrpcurlCheckAfterHelp(t *testing.T) {
+	src, err := generateGRPC(minimalGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	got := string(src)
+
+	// Isolate the main() body so we don't match printUsage() at its definition.
+	mainIdx := strings.Index(got, "func main()")
+	if mainIdx == -1 {
+		t.Fatal("generated code must contain func main()")
+	}
+	mainBody := got[mainIdx:]
+
+	// Within main(), printUsage() must come before checkGrpcurl().
+	helpInMain := strings.Index(mainBody, "printUsage()")
+	checkInMain := strings.Index(mainBody, "checkGrpcurl()")
+	if helpInMain == -1 {
+		t.Fatal("main() must call printUsage()")
+	}
+	if checkInMain == -1 {
+		t.Fatal("main() must call checkGrpcurl()")
+	}
+	if checkInMain < helpInMain {
+		t.Error("checkGrpcurl() must appear AFTER printUsage() in main()")
+	}
+}

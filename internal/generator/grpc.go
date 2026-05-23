@@ -33,11 +33,20 @@ func init() {
 	}
 }
 
+func checkGrpcurl() {
+	if _, err := exec.LookPath("grpcurl"); err != nil {
+		fmt.Fprintln(os.Stderr, "error: grpcurl is not installed or not in PATH")
+		fmt.Fprintln(os.Stderr, "Install it: https://github.com/fullstorydev/grpcurl")
+		os.Exit(1)
+	}
+}
+
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" || os.Args[1] == "help" {
 		printUsage()
 		os.Exit(0)
 	}
+	checkGrpcurl()
 	switch os.Args[1] {
 {{- range .Commands}}
 	case "{{.Name}}":
