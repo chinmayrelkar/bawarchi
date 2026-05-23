@@ -73,16 +73,43 @@ func setupRegistryWithSpec(t *testing.T, name string) (specFile, regJSONFile str
 	return specFile, regJSONFile
 }
 
+// makeRegistryDirReadOnly pre-creates the subdirectories that cookAndRegister
+// needs (so it can succeed), then makes the registry directory itself
+// non-writable so that os.CreateTemp inside registry.Save fails.  It registers
+// a cleanup that restores write permission before the test exits.
+//
+// Background: registry.Save now uses an atomic write-then-rename rather than
+// os.WriteFile.  os.Rename replaces the destination regardless of the
+// destination file's permission bits — only the directory write bit matters.
+// Making the directory non-writable is therefore the correct way to induce a
+// Save failure without touching the file itself.
+func makeRegistryDirReadOnly(t *testing.T, name string) {
+	t.Helper()
+	regDir := registry.Dir() // capture before HOME is restored by t.Setenv cleanup
+
+	// Pre-create every directory that cookAndRegister touches so that step
+	// succeeds even with a non-writable registry parent directory.
+	for _, d := range []string{
+		registry.BinDir(),
+		filepath.Join(registry.SrcDir(), name),
+	} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatalf("pre-create %s: %v", d, err)
+		}
+	}
+
+	if err := os.Chmod(regDir, 0500); err != nil {
+		t.Fatalf("chmod %s: %v", regDir, err)
+	}
+	t.Cleanup(func() { os.Chmod(regDir, 0700) }) //nolint:errcheck
+}
+
 // TestUpdateCmdRegistryUpdateErrorSurfaced verifies that when registry.Update
 // returns an error the updateCmd RunE propagates it wrapped as "updating registry: …"
 // instead of silently ignoring it.
 func TestUpdateCmdRegistryUpdateErrorSurfaced(t *testing.T) {
-	_, regJSONFile := setupRegistryWithSpec(t, "testcli")
-
-	if err := os.Chmod(regJSONFile, 0444); err != nil {
-		t.Fatalf("chmod registry.json: %v", err)
-	}
-	t.Cleanup(func() { os.Chmod(regJSONFile, 0644) }) //nolint:errcheck
+	setupRegistryWithSpec(t, "testcli")
+	makeRegistryDirReadOnly(t, "testcli")
 
 	cmd := updateCmd()
 	cmd.SetArgs([]string{"testcli"})
@@ -99,12 +126,8 @@ func TestUpdateCmdRegistryUpdateErrorSurfaced(t *testing.T) {
 // TestUpdateCmdRegistryUpdateErrorIsWrapped verifies the error uses %w so it
 // remains unwrappable.
 func TestUpdateCmdRegistryUpdateErrorIsWrapped(t *testing.T) {
-	_, regJSONFile := setupRegistryWithSpec(t, "testcli2")
-
-	if err := os.Chmod(regJSONFile, 0444); err != nil {
-		t.Fatalf("chmod registry.json: %v", err)
-	}
-	t.Cleanup(func() { os.Chmod(regJSONFile, 0644) }) //nolint:errcheck
+	setupRegistryWithSpec(t, "testcli2")
+	makeRegistryDirReadOnly(t, "testcli2")
 
 	cmd := updateCmd()
 	cmd.SetArgs([]string{"testcli2"})

@@ -48,7 +48,22 @@ func Save(entries []Entry) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(registryFile(), data, 0600)
+	// Write atomically: create a temp file in the same directory (same
+	// filesystem) and rename it into place so a crash mid-write cannot
+	// leave a partially-written registry.json.
+	tmp, err := os.CreateTemp(Dir(), ".registry-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // no-op after successful rename; cleans up on error
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), registryFile())
 }
 
 func Add(entry Entry) error {

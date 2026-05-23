@@ -67,6 +67,33 @@ func TestSavePermissions(t *testing.T) {
 	}
 }
 
+// TestSaveAtomicNoTempFiles verifies that no .registry-*.tmp scratch files are
+// left in the registry directory after a successful Save call.
+func TestSaveAtomicNoTempFiles(t *testing.T) {
+	restore := withTempHome(t)
+	defer restore()
+
+	entry := Entry{
+		Name:       "mycli",
+		SpecSource: "https://example.com/openapi.yaml",
+		Transport:  "rest",
+		AddedAt:    time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+	if err := Save([]Entry{entry}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	pattern := filepath.Join(Dir(), ".registry-*.tmp")
+	leftover, err := filepath.Glob(pattern)
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	if len(leftover) > 0 {
+		t.Errorf("temp files left behind after Save: %v", leftover)
+	}
+}
+
 // TestSavePermissionsDir verifies the directory is created fresh with the
 // correct mode even when the directory did not previously exist.
 func TestSavePermissionsDir(t *testing.T) {
