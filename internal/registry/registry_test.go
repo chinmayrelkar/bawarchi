@@ -67,6 +67,57 @@ func TestSavePermissions(t *testing.T) {
 	}
 }
 
+// TestCaseInsensitiveLookup verifies that Get, Add (duplicate check), Update,
+// and Remove all treat names as case-insensitive so "MyAPI" and "myapi" refer
+// to the same entry.
+func TestCaseInsensitiveLookup(t *testing.T) {
+	restore := withTempHome(t)
+	defer restore()
+
+	entry := Entry{
+		Name:       "MyAPI",
+		SpecSource: "https://example.com/openapi.yaml",
+		Transport:  "rest",
+		AddedAt:    time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+	if err := Add(entry); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Get with different casing should succeed.
+	for _, name := range []string{"myapi", "MYAPI", "MyApi", "MyAPI"} {
+		got, err := Get(name)
+		if err != nil {
+			t.Errorf("Get(%q) unexpected error: %v", name, err)
+			continue
+		}
+		if got.Name != "MyAPI" {
+			t.Errorf("Get(%q) Name = %q, want %q", name, got.Name, "MyAPI")
+		}
+	}
+
+	// Add with a case variant should return "already exists".
+	dupErr := Add(Entry{Name: "myapi", SpecSource: "https://other.com", Transport: "rest"})
+	if dupErr == nil {
+		t.Error("Add with case-variant name should return 'already exists' error")
+	}
+
+	// Update via case variant should work.
+	if err := Update("myapi", "https://new.example.com", ""); err != nil {
+		t.Errorf("Update with case-variant name: %v", err)
+	}
+
+	// Remove via case variant should work.
+	if err := Remove("MYAPI"); err != nil {
+		t.Errorf("Remove with case-variant name: %v", err)
+	}
+	entries, _ := Load()
+	if len(entries) != 0 {
+		t.Errorf("after Remove, expected 0 entries, got %d", len(entries))
+	}
+}
+
 // TestSaveAtomicNoTempFiles verifies that no .registry-*.tmp scratch files are
 // left in the registry directory after a successful Save call.
 func TestSaveAtomicNoTempFiles(t *testing.T) {
