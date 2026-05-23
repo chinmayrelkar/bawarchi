@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -72,7 +73,7 @@ func Add(entry Entry) error {
 		return err
 	}
 	for _, e := range entries {
-		if e.Name == entry.Name {
+		if strings.EqualFold(e.Name, entry.Name) {
 			return errors.New("already exists — use 'bawarchi update' to regenerate")
 		}
 	}
@@ -85,7 +86,7 @@ func Get(name string) (*Entry, error) {
 		return nil, err
 	}
 	for i := range entries {
-		if entries[i].Name == name {
+		if strings.EqualFold(entries[i].Name, name) {
 			return &entries[i], nil
 		}
 	}
@@ -98,7 +99,7 @@ func Update(name, specSource, baseURL string) error {
 		return err
 	}
 	for i := range entries {
-		if entries[i].Name == name {
+		if strings.EqualFold(entries[i].Name, name) {
 			if specSource != "" {
 				entries[i].SpecSource = specSource
 			}
@@ -120,7 +121,7 @@ func Remove(name string) error {
 	filtered := entries[:0]
 	found := false
 	for _, e := range entries {
-		if e.Name == name {
+		if strings.EqualFold(e.Name, name) {
 			found = true
 		} else {
 			filtered = append(filtered, e)
