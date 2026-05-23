@@ -283,3 +283,98 @@ func TestParseProto_ServerAnnotation_NoWarning(t *testing.T) {
 		t.Errorf("expected no stderr output when @server annotation is present, got: %q", buf.String())
 	}
 }
+
+// TestParseProto_StreamingRPC_Skipped verifies that server-streaming, client-streaming,
+// and bidirectional-streaming RPCs are excluded from the parsed operations, while
+// a non-streaming RPC in the same service is retained.
+func TestParseProto_StreamingRPC_Skipped(t *testing.T) {
+	proto := []byte(`// @server: localhost:50051
+syntax = "proto3";
+service Chat {
+  rpc Unary           (Request)        returns (Response);
+  rpc ServerStream    (Request)        returns (stream Response);
+  rpc ClientStream    (stream Request) returns (Response);
+  rpc BidiStream      (stream Request) returns (stream Response);
+}
+message Request  { string text = 1; }
+message Response { string text = 1; }
+`)
+	cli, err := ParseProto(proto, "test.proto")
+	if err != nil {
+		t.Fatalf("ParseProto failed: %v", err)
+	}
+	ops := cli.Commands[0].Operations
+	if len(ops) != 1 {
+		names := make([]string, len(ops))
+		for i, o := range ops {
+			names[i] = o.Name
+		}
+		t.Fatalf("expected 1 operation (only Unary), got %d: %v", len(ops), names)
+	}
+	if ops[0].GRPCMethod != "Unary" {
+		t.Errorf("expected GRPCMethod=Unary, got %q", ops[0].GRPCMethod)
+	}
+}
+
+// TestParseProto_StreamingRPC_WarningEmitted verifies that a warning mentioning
+// the skipped streaming RPC is written to stderr.
+func TestParseProto_StreamingRPC_WarningEmitted(t *testing.T) {
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = w
+
+	proto := []byte(`// @server: localhost:50051
+syntax = "proto3";
+service Events {
+  rpc Subscribe (Request) returns (stream Event);
+}
+message Request { string topic = 1; }
+message Event   { string payload = 1; }
+`)
+	_, parseErr := ParseProto(proto, "test.proto")
+
+	w.Close()
+	os.Stderr = oldStderr
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	r.Close()
+
+	if parseErr == nil {
+		// A service with only streaming RPCs should return an error (no operations).
+		// The caller should see this; we just check the warning was emitted.
+	}
+	stderr := buf.String()
+	if !strings.Contains(stderr, "streaming") {
+		t.Errorf("expected a 'streaming' warning on stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stderr, "Subscribe") {
+		t.Errorf("expected warning to mention RPC name 'Subscribe', got: %q", stderr)
+	}
+}
+
+// TestParseProto_AllStreamingService_ReturnsError verifies that a service consisting
+// entirely of streaming RPCs (no unary methods) causes ParseProto to return an error
+// because no operations can be generated.
+func TestParseProto_AllStreamingService_ReturnsError(t *testing.T) {
+	// Suppress stderr for this test
+	oldStderr := os.Stderr
+	_, w, _ := os.Pipe()
+	os.Stderr = w
+	defer func() { w.Close(); os.Stderr = oldStderr }()
+
+	proto := []byte(`// @server: localhost:50051
+syntax = "proto3";
+service StreamOnly {
+  rpc Watch (Request) returns (stream Event);
+}
+message Request { string id = 1; }
+message Event   { string data = 1; }
+`)
+	_, err := ParseProto(proto, "test.proto")
+	if err == nil {
+		t.Error("ParseProto must return an error when all RPCs in all services are streaming")
+	}
+}

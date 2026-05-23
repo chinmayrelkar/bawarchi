@@ -56,6 +56,10 @@ func ParseProto(data []byte, source string) (*CLIData, error) {
 
 		seenNames := map[string]int{} // dedup within this service
 		for i, rpc := range svc.rpcs {
+			if rpc.streaming {
+				fmt.Fprintf(os.Stderr, "warning: skipping streaming RPC %s.%s (streaming not supported)\n", svc.name, rpc.name)
+				continue
+			}
 			inputFields := messages[rpc.inputType]
 			var params []ParamData
 			for _, f := range inputFields {
@@ -93,6 +97,10 @@ func ParseProto(data []byte, source string) (*CLIData, error) {
 		}
 	}
 
+	if len(cli.Commands) == 0 {
+		return nil, fmt.Errorf("no non-streaming operations found in %s", source)
+	}
+
 	return cli, nil
 }
 
@@ -107,6 +115,7 @@ type protoRPC struct {
 	name       string
 	inputType  string
 	outputType string
+	streaming  bool // true if either side uses the stream keyword
 }
 
 type protoField struct {
@@ -122,7 +131,7 @@ var (
 	reOption   = regexp.MustCompile(`(?m)option\s+java_package\s*=\s*"([\w.]+)"`)
 	reGoPackage = regexp.MustCompile(`(?m)option\s+go_package\s*=\s*"([^"]+)"`)
 	reService  = regexp.MustCompile(`(?s)service\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}`)
-	reRPC      = regexp.MustCompile(`rpc\s+(\w+)\s*\(\s*(\w+)\s*\)\s*returns\s*\(\s*(\w+)\s*\)`)
+	reRPC      = regexp.MustCompile(`rpc\s+(\w+)\s*\(\s*(stream\s+)?(\w+)\s*\)\s*returns\s*\(\s*(stream\s+)?(\w+)\s*\)`)
 	reMessage  = regexp.MustCompile(`(?s)message\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}`)
 	reField    = regexp.MustCompile(`(?m)^\s*(?:(repeated)\s+)?(\w+)\s+(\w+)\s*=\s*\d+\s*;`)
 	reServerOption  = regexp.MustCompile(`(?m)//\s*@server:\s*(\S+)`)
@@ -168,10 +177,13 @@ func extractServices(content string) []protoService {
 	for _, m := range reService.FindAllStringSubmatch(content, -1) {
 		svc := protoService{name: m[1]}
 		for _, rm := range reRPC.FindAllStringSubmatch(m[2], -1) {
+			// rm[1]=name, rm[2]=stream? (input), rm[3]=inputType,
+			// rm[4]=stream? (output), rm[5]=outputType
 			svc.rpcs = append(svc.rpcs, protoRPC{
 				name:       rm[1],
-				inputType:  rm[2],
-				outputType: rm[3],
+				inputType:  rm[3],
+				outputType: rm[5],
+				streaming:  rm[2] != "" || rm[4] != "",
 			})
 		}
 		if len(svc.rpcs) > 0 {
