@@ -378,3 +378,89 @@ message Event   { string data = 1; }
 		t.Error("ParseProto must return an error when all RPCs in all services are streaming")
 	}
 }
+
+// TestParseProto_Oneof_FieldsSkipped verifies that fields declared inside a
+// oneof block are excluded from the parsed InputParams of the operation.
+func TestParseProto_Oneof_FieldsSkipped(t *testing.T) {
+	// Suppress stderr warnings for this test.
+	oldStderr := os.Stderr
+	_, w, _ := os.Pipe()
+	os.Stderr = w
+	defer func() { w.Close(); os.Stderr = oldStderr }()
+
+	proto := []byte(`// @server: localhost:50051
+syntax = "proto3";
+service Search {
+  rpc Query (SearchRequest) returns (SearchReply);
+}
+message SearchRequest {
+  string keyword = 1;
+  oneof filter {
+    string tag = 2;
+    int32 category_id = 3;
+  }
+  int32 limit = 4;
+}
+message SearchReply { string result = 1; }
+`)
+	cli, err := ParseProto(proto, "test.proto")
+	if err != nil {
+		t.Fatalf("ParseProto failed: %v", err)
+	}
+	params := cli.Commands[0].Operations[0].InputParams
+
+	// Only keyword and limit should be present; tag and category_id are inside oneof.
+	for _, p := range params {
+		if p.Name == "tag" || p.Name == "category_id" {
+			t.Errorf("param %q must be excluded because it is inside a oneof block", p.Name)
+		}
+	}
+	names := make([]string, len(params))
+	for i, p := range params {
+		names[i] = p.Name
+	}
+	if len(params) != 2 {
+		t.Errorf("expected 2 params (keyword, limit), got %d: %v", len(params), names)
+	}
+}
+
+// TestParseProto_Oneof_WarningEmitted verifies that a warning is written to
+// stderr mentioning "oneof" and the oneof field name when a oneof block is skipped.
+func TestParseProto_Oneof_WarningEmitted(t *testing.T) {
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = w
+
+	proto := []byte(`// @server: localhost:50051
+syntax = "proto3";
+service Search {
+  rpc Query (SearchRequest) returns (SearchReply);
+}
+message SearchRequest {
+  string keyword = 1;
+  oneof filter {
+    string tag = 2;
+    int32 category_id = 3;
+  }
+}
+message SearchReply { string result = 1; }
+`)
+	_, _ = ParseProto(proto, "test.proto")
+
+	w.Close()
+	os.Stderr = oldStderr
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	r.Close()
+
+	stderr := buf.String()
+	if !strings.Contains(stderr, "oneof") {
+		t.Errorf("expected warning mentioning 'oneof' on stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stderr, "filter") {
+		t.Errorf("expected warning mentioning oneof name 'filter' on stderr, got: %q", stderr)
+	}
+}
