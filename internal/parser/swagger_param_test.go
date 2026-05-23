@@ -216,3 +216,132 @@ func findFirstQueryParam(t *testing.T, cli *CLIData) ParamData {
 	t.Fatal("no query params found in CLIData")
 	return ParamData{}
 }
+
+// TestOpenAPI3_RequestBody_InlineProperties verifies that an OpenAPI 3.x operation
+// with an inline application/json requestBody produces BodyParams on the operation
+// and sets cli.HasBodyParams.
+func TestOpenAPI3_RequestBody_InlineProperties(t *testing.T) {
+	spec := []byte(`openapi: "3.0.0"
+info:
+  title: Pet Store
+  version: "1.0"
+servers:
+  - url: https://api.example.com
+paths:
+  /pets:
+    post:
+      tags: [pets]
+      operationId: createPet
+      summary: Create a pet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Pet name
+                age:
+                  type: integer
+                  description: Pet age
+      responses:
+        "201":
+          description: created
+`)
+	cli, err := ParseOpenAPI(spec)
+	if err != nil {
+		t.Fatalf("ParseOpenAPI: %v", err)
+	}
+
+	if !cli.HasBodyParams {
+		t.Error("cli.HasBodyParams must be true when a requestBody with properties is present")
+	}
+	op := cli.Commands[0].Operations[0]
+	if len(op.BodyParams) != 2 {
+		t.Fatalf("expected 2 body params, got %d: %+v", len(op.BodyParams), op.BodyParams)
+	}
+	// Properties must be sorted alphabetically (age before name).
+	if op.BodyParams[0].Name != "age" {
+		t.Errorf("BodyParams[0].Name = %q, want %q", op.BodyParams[0].Name, "age")
+	}
+	if op.BodyParams[0].GoType != "int" {
+		t.Errorf("BodyParams[0].GoType = %q, want %q", op.BodyParams[0].GoType, "int")
+	}
+	if op.BodyParams[1].Name != "name" {
+		t.Errorf("BodyParams[1].Name = %q, want %q", op.BodyParams[1].Name, "name")
+	}
+	if op.BodyParams[1].GoType != "string" {
+		t.Errorf("BodyParams[1].GoType = %q, want %q", op.BodyParams[1].GoType, "string")
+	}
+}
+
+// TestSwagger2_BodyParam_InlineProperties verifies that a Swagger 2.0 operation
+// with an in:body parameter and inline schema.properties produces BodyParams.
+func TestSwagger2_BodyParam_InlineProperties(t *testing.T) {
+	spec := []byte(`swagger: "2.0"
+info:
+  title: Pet Store
+  version: "1.0"
+host: api.example.com
+basePath: /v1
+schemes:
+  - https
+paths:
+  /pets:
+    post:
+      tags:
+        - pets
+      operationId: createPet
+      summary: Create a pet
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+                description: Pet name
+              count:
+                type: integer
+                description: Pet count
+`)
+	cli, err := ParseSwagger(spec)
+	if err != nil {
+		t.Fatalf("ParseSwagger: %v", err)
+	}
+
+	if !cli.HasBodyParams {
+		t.Error("cli.HasBodyParams must be true when an in:body parameter with properties is present")
+	}
+	op := cli.Commands[0].Operations[0]
+	if len(op.BodyParams) != 2 {
+		t.Fatalf("expected 2 body params, got %d: %+v", len(op.BodyParams), op.BodyParams)
+	}
+	// Properties must be sorted alphabetically (count before name).
+	if op.BodyParams[0].Name != "count" {
+		t.Errorf("BodyParams[0].Name = %q, want %q", op.BodyParams[0].Name, "count")
+	}
+	if op.BodyParams[1].Name != "name" {
+		t.Errorf("BodyParams[1].Name = %q, want %q", op.BodyParams[1].Name, "name")
+	}
+}
+
+// TestOpenAPI3_RequestBody_NoBodyParams_ForGetOp verifies that a GET operation
+// without a requestBody has no BodyParams and HasBodyParams stays false.
+func TestOpenAPI3_RequestBody_NoBodyParams_ForGetOp(t *testing.T) {
+	cli, err := ParseOpenAPI(minimalOpenAPI3SpecYAML())
+	if err != nil {
+		t.Fatalf("ParseOpenAPI: %v", err)
+	}
+	if cli.HasBodyParams {
+		t.Error("HasBodyParams must be false for a spec with only GET operations")
+	}
+	op := cli.Commands[0].Operations[0]
+	if len(op.BodyParams) != 0 {
+		t.Errorf("GET op must have 0 BodyParams, got %d", len(op.BodyParams))
+	}
+}
