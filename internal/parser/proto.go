@@ -11,7 +11,8 @@ import (
 // Generated CLIs shell out to grpcurl for the actual RPC calls.
 //
 // Supports: service definitions, rpc methods, message fields.
-// Does not support: imports, nested messages, oneofs, maps (treated as string).
+// Does not support: imports, nested messages, maps (treated as string).
+// Streaming RPCs and oneof blocks are skipped with a warning.
 func ParseProto(data []byte, source string) (*CLIData, error) {
 	content := string(data)
 
@@ -127,13 +128,19 @@ type protoField struct {
 // --- regex-based parser ---
 
 var (
-	rePackage  = regexp.MustCompile(`(?m)^package\s+([\w.]+)\s*;`)
-	reOption   = regexp.MustCompile(`(?m)option\s+java_package\s*=\s*"([\w.]+)"`)
+	rePackage   = regexp.MustCompile(`(?m)^package\s+([\w.]+)\s*;`)
+	reOption    = regexp.MustCompile(`(?m)option\s+java_package\s*=\s*"([\w.]+)"`)
 	reGoPackage = regexp.MustCompile(`(?m)option\s+go_package\s*=\s*"([^"]+)"`)
-	reService  = regexp.MustCompile(`(?s)service\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}`)
-	reRPC      = regexp.MustCompile(`rpc\s+(\w+)\s*\(\s*(stream\s+)?(\w+)\s*\)\s*returns\s*\(\s*(stream\s+)?(\w+)\s*\)`)
-	reMessage  = regexp.MustCompile(`(?s)message\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}`)
-	reField    = regexp.MustCompile(`(?m)^\s*(?:(repeated)\s+)?(\w+)\s+(\w+)\s*=\s*\d+\s*;`)
+	reService   = regexp.MustCompile(`(?s)service\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}`)
+	reRPC       = regexp.MustCompile(`rpc\s+(\w+)\s*\(\s*(stream\s+)?(\w+)\s*\)\s*returns\s*\(\s*(stream\s+)?(\w+)\s*\)`)
+	// reMessage captures the body of a message up to one level of nesting.
+	// Uses (?:[^{}]|\{[^}]*\})* so that brace-delimited sub-blocks (oneof, enum,
+	// options) are treated as atomic tokens rather than cutting off the outer match
+	// at the first } character.
+	reMessage   = regexp.MustCompile(`(?s)message\s+(\w+)\s*\{((?:[^{}]|\{[^}]*\})*)\}`)
+	reField     = regexp.MustCompile(`(?m)^\s*(?:(repeated)\s+)?(\w+)\s+(\w+)\s*=\s*\d+\s*;`)
+	reOneof     = regexp.MustCompile(`(?s)oneof\s+(\w+)\s*\{[^}]*\}`)
+
 	reServerOption  = regexp.MustCompile(`(?m)//\s*@server:\s*(\S+)`)
 	reServiceOption = regexp.MustCompile(`(?m)//\s*@service:\s*(\S+)`)
 	reNoAuth        = regexp.MustCompile(`(?m)//\s*@noauth\b`)
@@ -196,16 +203,31 @@ func extractServices(content string) []protoService {
 func extractMessages(content string) map[string][]protoField {
 	msgs := map[string][]protoField{}
 	for _, m := range reMessage.FindAllStringSubmatch(content, -1) {
-		name := m[1]
+		msgName := m[1]
+		body := m[2]
+
+		// Strip oneof { ... } blocks before extracting fields.
+		// Fields inside a oneof are mutually exclusive and cannot be modelled
+		// as independent CLI flags; emit a warning and skip them.
+		body = reOneof.ReplaceAllStringFunc(body, func(match string) string {
+			sub := reOneof.FindStringSubmatch(match)
+			oneofName := ""
+			if len(sub) > 1 {
+				oneofName = sub[1]
+			}
+			fmt.Fprintf(os.Stderr, "warning: skipping oneof %q in message %q (oneof not supported)\n", oneofName, msgName)
+			return "" // remove the block from body
+		})
+
 		var fields []protoField
-		for _, fm := range reField.FindAllStringSubmatch(m[2], -1) {
+		for _, fm := range reField.FindAllStringSubmatch(body, -1) {
 			fields = append(fields, protoField{
 				repeated: fm[1] == "repeated",
 				typeName: fm[2],
 				name:     fm[3],
 			})
 		}
-		msgs[name] = fields
+		msgs[msgName] = fields
 	}
 	return msgs
 }
