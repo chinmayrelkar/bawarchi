@@ -20,6 +20,8 @@ type openAPI3Spec struct {
 	Paths      map[string]oaPathItem `yaml:"paths" json:"paths"`
 	Components struct {
 		SecuritySchemes map[string]oaSecurityScheme `yaml:"securitySchemes" json:"securitySchemes"`
+		Schemas         map[string]oaSchema         `yaml:"schemas" json:"schemas"`
+		Parameters      map[string]oaParameter      `yaml:"parameters" json:"parameters"`
 	} `yaml:"components" json:"components"`
 }
 
@@ -29,7 +31,8 @@ type oaInfo struct {
 }
 
 type oaServer struct {
-	URL string `yaml:"url" json:"url"`
+	URL         string `yaml:"url" json:"url"`
+	Description string `yaml:"description" json:"description"`
 }
 
 type oaPathItem struct {
@@ -41,51 +44,66 @@ type oaPathItem struct {
 }
 
 type oaOperation struct {
-	OperationID string          `yaml:"operationId" json:"operationId"`
-	Summary     string          `yaml:"summary" json:"summary"`
-	Description string          `yaml:"description" json:"description"`
-	Tags        []string        `yaml:"tags" json:"tags"`
-	Parameters  []oaParameter   `yaml:"parameters" json:"parameters"`
-	RequestBody *oaRequestBody  `yaml:"requestBody" json:"requestBody"`
+	OperationID string         `yaml:"operationId" json:"operationId"`
+	Summary     string         `yaml:"summary" json:"summary"`
+	Description string         `yaml:"description" json:"description"`
+	Tags        []string       `yaml:"tags" json:"tags"`
+	Parameters  []oaParameter  `yaml:"parameters" json:"parameters"`
+	RequestBody *oaRequestBody `yaml:"requestBody" json:"requestBody"`
 }
 
 // oaRequestBody represents an OpenAPI 3.x requestBody object.
 type oaRequestBody struct {
-	Required bool                      `yaml:"required" json:"required"`
-	Content  map[string]oaMediaType    `yaml:"content" json:"content"`
+	Required bool                   `yaml:"required" json:"required"`
+	Content  map[string]oaMediaType `yaml:"content" json:"content"`
 }
 
 type oaMediaType struct {
-	Schema oaBodySchema `yaml:"schema" json:"schema"`
+	Schema oaSchema `yaml:"schema" json:"schema"`
 }
 
-// oaBodySchema covers inline object schemas and $ref.
-type oaBodySchema struct {
-	Type       string                      `yaml:"type" json:"type"`
-	Ref        string                      `yaml:"$ref" json:"$ref"`
-	Properties map[string]oaSchemaProp     `yaml:"properties" json:"properties"`
+// oaSchema covers inline object schemas, arrays, and $ref. It is shared by
+// requestBody media types, parameter schemas, and components/schemas entries.
+type oaSchema struct {
+	Type       string                  `yaml:"type" json:"type"`
+	Ref        string                  `yaml:"$ref" json:"$ref"`
+	Format     string                  `yaml:"format" json:"format"`
+	Properties map[string]oaSchemaProp `yaml:"properties" json:"properties"`
+	Required   []string                `yaml:"required" json:"required"`
+	Items      *oaItems                `yaml:"items" json:"items"`
 }
 
+// oaSchemaProp is a single property within an object schema. A property may
+// itself be a scalar, an array (Items), a nested object (Properties), or a
+// $ref to another schema (Ref).
 type oaSchemaProp struct {
-	Type        string `yaml:"type" json:"type"`
-	Description string `yaml:"description" json:"description"`
+	Type        string   `yaml:"type" json:"type"`
+	Format      string   `yaml:"format" json:"format"`
+	Description string   `yaml:"description" json:"description"`
+	Ref         string   `yaml:"$ref" json:"$ref"`
+	Items       *oaItems `yaml:"items" json:"items"`
+}
+
+// oaItems describes the element type of an array (scalar type or $ref).
+type oaItems struct {
+	Type string `yaml:"type" json:"type"`
+	Ref  string `yaml:"$ref" json:"$ref"`
 }
 
 // oaParameter represents a parameter in both Swagger 2.0 and OpenAPI 3.x specs.
-// In Swagger 2.0, type/format live directly on the parameter object (Type, Format fields).
-// In OpenAPI 3.x, type lives inside schema (Schema.Type).
+// In Swagger 2.0, type/format/items live directly on the parameter object.
+// In OpenAPI 3.x, type lives inside Schema. A parameter may also be a $ref
+// (OpenAPI components/parameters or Swagger #/parameters), captured by Ref.
 type oaParameter struct {
-	Name        string `yaml:"name" json:"name"`
-	In          string `yaml:"in" json:"in"`
-	Description string `yaml:"description" json:"description"`
-	Required    bool   `yaml:"required" json:"required"`
-	Type        string `yaml:"type" json:"type"`
-	Format      string `yaml:"format" json:"format"`
-	Schema      struct {
-		Type       string                  `yaml:"type" json:"type"`
-		Ref        string                  `yaml:"$ref" json:"$ref"`
-		Properties map[string]oaSchemaProp `yaml:"properties" json:"properties"`
-	} `yaml:"schema" json:"schema"`
+	Ref         string    `yaml:"$ref" json:"$ref"`
+	Name        string    `yaml:"name" json:"name"`
+	In          string    `yaml:"in" json:"in"`
+	Description string    `yaml:"description" json:"description"`
+	Required    bool      `yaml:"required" json:"required"`
+	Type        string    `yaml:"type" json:"type"`
+	Format      string    `yaml:"format" json:"format"`
+	Items       *oaItems  `yaml:"items" json:"items"`   // Swagger 2.0 array element type
+	Schema      *oaSchema `yaml:"schema" json:"schema"` // OpenAPI 3.x / Swagger body schema
 }
 
 type oaSecurityScheme struct {
@@ -114,23 +132,29 @@ func ParseOpenAPI(data []byte) (*CLIData, error) {
 	}
 
 	if len(spec.Servers) > 0 {
-		rawURL := strings.TrimRight(spec.Servers[0].URL, "/")
-		cli.BaseURL = rawURL
-		cli.BaseURLEnvVar = strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(cli.Name, "_")) + "__BASE_URL"
+		prefix := strings.ToUpper(regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(cli.Name, "_"))
+		cli.BaseURL = strings.TrimRight(spec.Servers[0].URL, "/")
+		cli.BaseURLEnvVar = prefix + "__BASE_URL"
+		cli.ServerEnvVar = prefix + "__SERVER"
+		for _, s := range spec.Servers {
+			cli.Servers = append(cli.Servers, ServerData{
+				URL:         strings.TrimRight(s.URL, "/"),
+				Description: s.Description,
+			})
+		}
 	}
 
 	cli.AuthEnvVar, cli.AuthSetup = authFromSchemes(spec.Components.SecuritySchemes, cli.Name)
 	if strings.Contains(cli.AuthSetup, "base64") {
 		cli.AuthImport = `"encoding/base64"`
 	}
-	buildCommandsFromOps(cli, spec.Paths, func(p oaParameter) (in, typ string) {
-		return p.In, p.Schema.Type
-	})
+	buildCommandsFromOps(cli, &spec)
 
 	if len(cli.Commands) == 0 {
 		return nil, fmt.Errorf("spec defines no operations")
 	}
 
+	cli.finalize()
 	return cli, nil
 }
 
@@ -151,11 +175,11 @@ func authFromSchemes(schemes map[string]oaSecurityScheme, apiName string) (envVa
 
 	// Priority constants – lower value wins.
 	const (
-		prioBearer   = 1
-		prioBasic    = 2
-		prioAPIKeyH  = 3
-		prioAPIKeyQ  = 4
-		prioNone     = 99
+		prioBearer  = 1
+		prioBasic   = 2
+		prioAPIKeyH = 3
+		prioAPIKeyQ = 4
+		prioNone    = 99
 	)
 
 	type candidate struct {
@@ -234,8 +258,13 @@ func authFromSchemes(schemes map[string]oaSecurityScheme, apiName string) (envVa
 	return envVar, `req.Header.Set("Authorization", "Bearer "+key)`
 }
 
-// buildCommandsFromOps populates cli.Commands from collected path operations.
-func buildCommandsFromOps(cli *CLIData, paths map[string]oaPathItem, getParamInfo func(oaParameter) (in, typ string)) {
+// buildCommandsFromOps populates cli.Commands from collected path operations,
+// resolving parameter and requestBody $refs against the spec's components.
+func buildCommandsFromOps(cli *CLIData, spec *openAPI3Spec) {
+	paths := spec.Paths
+	schemas := spec.Components.Schemas
+	paramDefs := spec.Components.Parameters
+
 	tagOps := map[string][]pathOp{}
 	var tagOrder []string
 
@@ -301,9 +330,24 @@ func buildCommandsFromOps(cli *CLIData, paths map[string]oaPathItem, getParamInf
 				Path:        pop.path,
 			}
 			for _, p := range pop.op.Parameters {
-				in, typ := getParamInfo(p)
-				pd := makeParamData(p.Name, p.Description, p.Required, typ)
-				switch in {
+				// Resolve parameter-level $ref (components/parameters).
+				if p.Ref != "" {
+					if resolved, ok := paramDefs[refName(p.Ref)]; ok {
+						p = resolved
+					} else {
+						fmt.Fprintf(os.Stderr, "warning: cannot resolve parameter $ref %q; skipping\n", p.Ref)
+						continue
+					}
+				}
+				typ, itemType := "string", ""
+				if p.Schema != nil {
+					typ = firstNonEmpty(p.Schema.Type, "string")
+					if p.Schema.Items != nil {
+						itemType = p.Schema.Items.Type
+					}
+				}
+				pd := makeParamData(p.Name, p.Description, p.Required, typ, itemType)
+				switch p.In {
 				case "path":
 					pd.PathPlaceholder = "{" + p.Name + "}"
 					od.PathParams = append(od.PathParams, pd)
@@ -314,24 +358,13 @@ func buildCommandsFromOps(cli *CLIData, paths map[string]oaPathItem, getParamInf
 					od.HeaderParams = append(od.HeaderParams, pd)
 				}
 			}
-			// OpenAPI 3.x requestBody: extract inline application/json properties.
+			// OpenAPI 3.x requestBody: extract application/json properties,
+			// resolving a top-level $ref against components/schemas.
 			if pop.op.RequestBody != nil {
 				if mt, ok := pop.op.RequestBody.Content["application/json"]; ok {
-					if mt.Schema.Ref != "" {
-						fmt.Fprintf(os.Stderr, "warning: requestBody uses $ref (%q); body params not yet supported — skipping\n", mt.Schema.Ref)
-					} else {
-						propNames := make([]string, 0, len(mt.Schema.Properties))
-						for n := range mt.Schema.Properties {
-							propNames = append(propNames, n)
-						}
-						sort.Strings(propNames)
-						for _, propName := range propNames {
-							prop := mt.Schema.Properties[propName]
-							od.BodyParams = append(od.BodyParams, makeParamData(propName, prop.Description, false, prop.Type))
-						}
-						if len(od.BodyParams) > 0 {
-							cli.HasBodyParams = true
-						}
+					od.BodyParams = bodyParamsFromSchema(mt.Schema, schemas)
+					if len(od.BodyParams) > 0 {
+						cli.HasBodyParams = true
 					}
 				}
 			}
@@ -341,6 +374,75 @@ func buildCommandsFromOps(cli *CLIData, paths map[string]oaPathItem, getParamInf
 			cli.Commands = append(cli.Commands, cmd)
 		}
 	}
+}
+
+// refName returns the final path segment of a JSON-Reference string, e.g.
+// "#/components/schemas/Pet" -> "Pet".
+func refName(ref string) string {
+	parts := strings.Split(ref, "/")
+	return parts[len(parts)-1]
+}
+
+// bodyParamsFromSchema flattens an object schema into body flag params,
+// resolving a top-level $ref against the supplied schema map. Scalar and array
+// properties become typed flags; nested objects / $ref properties become a
+// raw-JSON string flag. Ref cycles are guarded against.
+func bodyParamsFromSchema(schema oaSchema, schemas map[string]oaSchema) []ParamData {
+	return bodyParamsResolve(schema, schemas, map[string]bool{})
+}
+
+func bodyParamsResolve(schema oaSchema, schemas map[string]oaSchema, seen map[string]bool) []ParamData {
+	if schema.Ref != "" {
+		name := refName(schema.Ref)
+		if seen[name] {
+			return nil // cycle guard
+		}
+		seen[name] = true
+		resolved, ok := schemas[name]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "warning: cannot resolve schema $ref %q; skipping body fields\n", schema.Ref)
+			return nil
+		}
+		return bodyParamsResolve(resolved, schemas, seen)
+	}
+	// Array body: a top-level array has no named fields to map to flags.
+	if schema.Type == "array" {
+		fmt.Fprintf(os.Stderr, "warning: top-level array request bodies are not expanded into flags; skipping\n")
+		return nil
+	}
+
+	reqSet := map[string]bool{}
+	for _, r := range schema.Required {
+		reqSet[r] = true
+	}
+	propNames := make([]string, 0, len(schema.Properties))
+	for n := range schema.Properties {
+		propNames = append(propNames, n)
+	}
+	sort.Strings(propNames)
+
+	var params []ParamData
+	for _, propName := range propNames {
+		prop := schema.Properties[propName]
+		typ, itemType := prop.Type, ""
+		switch {
+		case prop.Ref != "":
+			// Nested object reference — accept as raw JSON via a string flag.
+			typ = "string"
+		case prop.Type == "object":
+			typ = "string"
+		case prop.Type == "array":
+			if prop.Items != nil {
+				if prop.Items.Ref != "" {
+					itemType = "string" // array of objects: comma-separated JSON
+				} else {
+					itemType = prop.Items.Type
+				}
+			}
+		}
+		params = append(params, makeParamData(propName, prop.Description, reqSet[propName], typ, itemType))
+	}
+	return params
 }
 
 type pathOp struct {
@@ -388,7 +490,7 @@ func operationName(pop pathOp) string {
 	return methodPathSlug(pop.method, pop.path)
 }
 
-func makeParamData(name, description string, required bool, typ string) ParamData {
+func makeParamData(name, description string, required bool, typ, itemType string) ParamData {
 	pd := ParamData{
 		Name:        name,
 		GoVarName:   toPascalCase(name),
@@ -396,15 +498,48 @@ func makeParamData(name, description string, required bool, typ string) ParamDat
 		Description: description,
 		Required:    required,
 	}
+	applyType(&pd, typ, itemType)
+	return pd
+}
+
+// applyType maps an OpenAPI/Swagger type onto a ParamData's Go flag fields.
+// Arrays are entered as a comma-separated string flag and expanded by the
+// generated CLI into repeated query values or a JSON array body field.
+func applyType(pd *ParamData, typ, itemType string) {
 	switch typ {
 	case "integer":
-		pd.GoType, pd.FlagFunc, pd.DefaultLiteral, pd.DefaultCmp = "int", "IntVar", "0", "!= 0"
+		pd.GoType, pd.FlagFunc, pd.DefaultLiteral, pd.DefaultCmp, pd.ZeroCmp = "int", "IntVar", "0", "!= 0", "== 0"
 	case "number":
-		pd.GoType, pd.FlagFunc, pd.DefaultLiteral, pd.DefaultCmp = "float64", "Float64Var", "0.0", "!= 0.0"
+		pd.GoType, pd.FlagFunc, pd.DefaultLiteral, pd.DefaultCmp, pd.ZeroCmp = "float64", "Float64Var", "0.0", "!= 0.0", "== 0.0"
+	case "boolean":
+		pd.GoType, pd.FlagFunc, pd.DefaultLiteral, pd.DefaultCmp, pd.ZeroCmp = "bool", "BoolVar", "false", "!= false", "== false"
+	case "array":
+		pd.IsArray = true
+		pd.ElemType = goElemType(itemType)
+		pd.GoType, pd.FlagFunc, pd.DefaultLiteral, pd.DefaultCmp, pd.ZeroCmp = "string", "StringVar", `""`, `!= ""`, `== ""`
+		if pd.Description == "" {
+			pd.Description = "(comma-separated)"
+		} else {
+			pd.Description += " (comma-separated)"
+		}
 	default:
-		pd.GoType, pd.FlagFunc, pd.DefaultLiteral, pd.DefaultCmp = "string", "StringVar", `""`, `!= ""`
+		pd.GoType, pd.FlagFunc, pd.DefaultLiteral, pd.DefaultCmp, pd.ZeroCmp = "string", "StringVar", `""`, `!= ""`, `== ""`
 	}
-	return pd
+}
+
+// goElemType maps an array item type to the Go scalar used when emitting JSON
+// body arrays. Unknown / object element types fall back to string.
+func goElemType(itemType string) string {
+	switch itemType {
+	case "integer":
+		return "int"
+	case "number":
+		return "float64"
+	case "boolean":
+		return "bool"
+	default:
+		return "string"
+	}
 }
 
 // --- string helpers ---

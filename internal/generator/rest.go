@@ -19,7 +19,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
+{{if or .HasArrayParams (gt (len .Servers) 1)}}	"strconv"
+{{end}}	"strings"
 	"time"{{if .AuthImport}}
 	{{.AuthImport}}{{end}}
 )
@@ -32,6 +33,20 @@ var (
 )
 
 func init() {
+{{- if gt (len .Servers) 1}}
+	servers := []string{
+{{- range .Servers}}
+		"{{.URL}}",
+{{- end}}
+	}
+	if v := os.Getenv("{{.ServerEnvVar}}"); v != "" {
+		if idx, err := strconv.Atoi(v); err == nil && idx >= 0 && idx < len(servers) {
+			baseURL = servers[idx]
+		} else {
+			fmt.Fprintf(os.Stderr, "warning: %s=%q is not a valid server index (0..%d); using default\n", "{{.ServerEnvVar}}", v, len(servers)-1)
+		}
+	}
+{{- end}}
 	if v := os.Getenv("{{.BaseURLEnvVar}}"); v != "" {
 		baseURL = strings.TrimRight(v, "/")
 	}
@@ -65,6 +80,12 @@ func printUsage() {
 {{- end}}
 	fmt.Printf("\nAuth:    set %s{{if .AuthImport}} (format: email:apikey){{end}}\n", authEnvVar)
 	fmt.Printf("Base URL: %s (override with %s)\n", baseURL, "{{.BaseURLEnvVar}}")
+{{- if gt (len .Servers) 1}}
+	fmt.Println("Servers (select with {{.ServerEnvVar}}=<index>):")
+{{- range $i, $s := .Servers}}
+	fmt.Printf("  [%d] %s{{if $s.Description}} — {{safeStr $s.Description}}{{end}}\n", {{$i}}, "{{$s.URL}}")
+{{- end}}
+{{- end}}
 }
 
 func doRequest(method, rawURL string, body io.Reader, headers map[string]string) {
@@ -105,8 +126,12 @@ func doRequest(method, rawURL string, body io.Reader, headers map[string]string)
 	} else {
 		os.Stdout.Write(data)
 	}
+	// Standardized exit codes: 0 success, 4 client error (4xx), 5 server error (5xx).
+	if resp.StatusCode >= 500 {
+		os.Exit(5)
+	}
 	if resp.StatusCode >= 400 {
-		os.Exit(1)
+		os.Exit(4)
 	}
 }
 {{range .Commands}}
@@ -141,7 +166,7 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 	fs := flag.NewFlagSet("{{$.Name}} {{$cmd.Name}} {{.Name}}", flag.ExitOnError)
 {{- range .QueryParams}}
 	var p{{.GoVarName}} {{.GoType}} = {{.DefaultLiteral}}
-	fs.{{.FlagFunc}}(&p{{.GoVarName}}, "{{.FlagName}}", {{.DefaultLiteral}}, "{{safeStr .Description}}")
+	fs.{{.FlagFunc}}(&p{{.GoVarName}}, "{{.FlagName}}", {{.DefaultLiteral}}, "{{safeStr .Description}}{{if .Required}} (required){{end}}")
 {{- end}}
 {{- range .PathParams}}
 	var p{{.GoVarName}} string
@@ -149,11 +174,11 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 {{- end}}
 {{- range .BodyParams}}
 	var p{{.GoVarName}} {{.GoType}} = {{.DefaultLiteral}}
-	fs.{{.FlagFunc}}(&p{{.GoVarName}}, "{{.FlagName}}", {{.DefaultLiteral}}, "{{safeStr .Description}}")
+	fs.{{.FlagFunc}}(&p{{.GoVarName}}, "{{.FlagName}}", {{.DefaultLiteral}}, "{{safeStr .Description}}{{if .Required}} (required){{end}}")
 {{- end}}
 {{- range .HeaderParams}}
 	var p{{.GoVarName}} string
-	fs.StringVar(&p{{.GoVarName}}, "{{.FlagName}}", "", "{{safeStr .Description}} (HTTP header)")
+	fs.StringVar(&p{{.GoVarName}}, "{{.FlagName}}", "", "{{safeStr .Description}} (HTTP header){{if .Required}} (required){{end}}")
 {{- end}}
 	fs.Parse(args)
 {{range .PathParams}}
@@ -161,6 +186,30 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 		fmt.Fprintf(os.Stderr, "error: --{{.FlagName}} is required\n")
 		os.Exit(1)
 	}
+{{- end}}
+{{- range .QueryParams}}
+{{- if and .Required (ne .GoType "bool")}}
+	if p{{.GoVarName}} {{.ZeroCmp}} {
+		fmt.Fprintf(os.Stderr, "error: --{{.FlagName}} is required\n")
+		os.Exit(1)
+	}
+{{- end}}
+{{- end}}
+{{- range .HeaderParams}}
+{{- if .Required}}
+	if p{{.GoVarName}} == "" {
+		fmt.Fprintf(os.Stderr, "error: --{{.FlagName}} is required\n")
+		os.Exit(1)
+	}
+{{- end}}
+{{- end}}
+{{- range .BodyParams}}
+{{- if and .Required (ne .GoType "bool")}}
+	if p{{.GoVarName}} {{.ZeroCmp}} {
+		fmt.Fprintf(os.Stderr, "error: --{{.FlagName}} is required\n")
+		os.Exit(1)
+	}
+{{- end}}
 {{- end}}
 	path := "{{.Path}}"
 {{- range .PathParams}}
@@ -173,9 +222,17 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 	}
 	q := u.Query()
 {{- range .QueryParams}}
+{{- if .IsArray}}
+	if p{{.GoVarName}} != "" {
+		for _, v := range splitList(p{{.GoVarName}}) {
+			q.Add("{{.Name}}", v)
+		}
+	}
+{{- else}}
 	if p{{.GoVarName}} {{.DefaultCmp}} {
 		q.Set("{{.Name}}", fmt.Sprintf("%v", p{{.GoVarName}}))
 	}
+{{- end}}
 {{- end}}
 	u.RawQuery = q.Encode()
 {{- if .HeaderParams}}
@@ -189,9 +246,15 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 {{- if .BodyParams}}
 	reqBody := map[string]interface{}{}
 {{- range .BodyParams}}
+{{- if .IsArray}}
+	if p{{.GoVarName}} != "" {
+		reqBody["{{.Name}}"] = {{listConv .ElemType}}(p{{.GoVarName}})
+	}
+{{- else}}
 	if p{{.GoVarName}} {{.DefaultCmp}} {
 		reqBody["{{.Name}}"] = p{{.GoVarName}}
 	}
+{{- end}}
 {{- end}}
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
@@ -203,7 +266,60 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 	doRequest("{{.Method}}", u.String(), nil, {{if .HeaderParams}}hdrs{{else}}nil{{end}})
 {{- end}}
 }
-{{end}}{{end}}`
+{{end}}{{end}}
+{{- if .HasArrayParams}}
+// splitList parses a comma-separated flag value into trimmed, non-empty items.
+func splitList(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func toIntList(s string) []int {
+	var out []int
+	for _, p := range splitList(s) {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %q is not an integer\n", p)
+			os.Exit(1)
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+func toFloatList(s string) []float64 {
+	var out []float64
+	for _, p := range splitList(s) {
+		f, err := strconv.ParseFloat(p, 64)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %q is not a number\n", p)
+			os.Exit(1)
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+func toBoolList(s string) []bool {
+	var out []bool
+	for _, p := range splitList(s) {
+		b, err := strconv.ParseBool(p)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %q is not a boolean\n", p)
+			os.Exit(1)
+		}
+		out = append(out, b)
+	}
+	return out
+}
+{{- end}}`
 
 func generateREST(data *parser.CLIData) ([]byte, error) {
 	tmpl, err := template.New("rest").Funcs(tmplFuncs).Parse(restTemplate)

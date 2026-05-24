@@ -17,4 +17,18 @@ var tmplFuncs = template.FuncMap{
 		s = strings.ReplaceAll(s, "\t", " ")
 		return strings.TrimSpace(s)
 	},
+	// listConv maps an array element Go type to the generated helper that parses a
+	// comma-separated flag value into a typed slice for JSON body encoding.
+	"listConv": func(elemType string) string {
+		switch elemType {
+		case "int":
+			return "toIntList"
+		case "float64":
+			return "toFloatList"
+		case "bool":
+			return "toBoolList"
+		default:
+			return "splitList"
+		}
+	},
 }
