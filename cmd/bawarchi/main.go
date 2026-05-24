@@ -15,6 +15,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is the bawarchi release version. Override at build time with:
+//
+//	go build -ldflags "-X main.version=v1.2.3" ./cmd/bawarchi
+var version = "dev"
+
 func main() {
 	if err := rootCmd().Execute(); err != nil {
 		os.Exit(1)
@@ -23,9 +28,11 @@ func main() {
 
 func rootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "bawarchi",
-		Short: "Generate and manage CLIs from OpenAPI specs and proto files",
+		Use:     "bawarchi",
+		Short:   "Generate and manage CLIs from OpenAPI specs and proto files",
+		Version: version,
 	}
+	root.SetVersionTemplate("bawarchi {{.Version}}\n")
 	root.AddCommand(
 		addCmd(),
 		listCmd(),
@@ -50,7 +57,11 @@ func addCmd() *cobra.Command {
 			source := args[0]
 
 			fmt.Printf("Parsing %s…\n", source)
-			data, err := parser.ParseSource(source)
+			raw, err := parser.Load(source)
+			if err != nil {
+				return fmt.Errorf("load: %w", err)
+			}
+			data, err := parser.ParseBytes(raw, source)
 			if err != nil {
 				return fmt.Errorf("parse: %w", err)
 			}
@@ -83,6 +94,12 @@ func addCmd() *cobra.Command {
 
 			if err := cookAndRegister(data, source, baseURL, true); err != nil {
 				return err
+			}
+
+			// Cache the raw spec so 'bawarchi update' survives a moved or
+			// offline source. Non-fatal: the CLI is already built.
+			if err := registry.CacheSpec(data.Name, raw); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not cache spec: %v\n", err)
 			}
 
 			fmt.Printf("\n✓ %s is ready at %s\n", data.Name, filepath.Join(registry.BinDir(), data.Name))
@@ -151,7 +168,17 @@ func updateCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Re-parsing %s…\n", src)
-			data, err := parser.ParseSource(src)
+			raw, err := parser.Load(src)
+			if err != nil {
+				// Source unreachable — fall back to the cached spec if present.
+				cached, cacheErr := registry.CachedSpec(sanitizedName)
+				if cacheErr != nil {
+					return fmt.Errorf("load %s: %w (no cached spec to fall back on)", src, err)
+				}
+				fmt.Fprintf(os.Stderr, "warning: could not fetch %s (%v); using cached spec\n", src, err)
+				raw = cached
+			}
+			data, err := parser.ParseBytes(raw, src)
 			if err != nil {
 				return fmt.Errorf("parse: %w", err)
 			}
@@ -162,6 +189,11 @@ func updateCmd() *cobra.Command {
 
 			if err := cookAndRegister(data, src, overrideURL, false); err != nil {
 				return err
+			}
+
+			// Refresh the cache with the freshly fetched spec (no-op on fallback).
+			if err := registry.CacheSpec(sanitizedName, raw); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not cache spec: %v\n", err)
 			}
 
 			if err := registry.Update(sanitizedName, src, overrideURL); err != nil {
@@ -236,6 +268,7 @@ func removeCmd() *cobra.Command {
 			}
 			os.RemoveAll(filepath.Join(registry.SrcDir(), name)) //nolint:errcheck
 			os.Remove(filepath.Join(registry.BinDir(), name))    //nolint:errcheck
+			registry.RemoveCachedSpec(name)                      //nolint:errcheck
 			// Remove the install symlink if one was recorded by 'bawarchi install'.
 			if installPath != "" {
 				os.Remove(installPath) //nolint:errcheck

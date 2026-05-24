@@ -25,8 +25,12 @@ func GenerateDry(data *parser.CLIData) ([]byte, error) {
 }
 
 // Generate writes Go source + go.mod for the given CLIData into outDir.
+//
+// Generated artifacts may embed internal base URLs and auth env-var names, so
+// the directory (0700) and files (0600) are created owner-only. Generate runs
+// before the compiler, so it owns the initial permissions of these paths.
 func Generate(data *parser.CLIData, outDir string) error {
-	if err := os.MkdirAll(outDir, 0755); err != nil {
+	if err := os.MkdirAll(outDir, 0700); err != nil {
 		return err
 	}
 
@@ -50,10 +54,10 @@ func Generate(data *parser.CLIData, outDir string) error {
 
 	modSrc = goMod(data)
 
-	if err := os.WriteFile(filepath.Join(outDir, "main.go"), mainSrc, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "main.go"), mainSrc, 0600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "go.mod"), modSrc, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "go.mod"), modSrc, 0600); err != nil {
 		return err
 	}
 
@@ -73,20 +77,12 @@ func goVersion() string {
 }
 
 func goMod(data *parser.CLIData) []byte {
-	ver := goVersion()
-	if data.Transport == parser.TransportGRPC {
-		return []byte(`module bawarchi/gen/` + data.Name + `
-
-go ` + ver + `
-
-require (
-	github.com/fullstorydev/grpcurl v1.9.1
-	google.golang.org/grpc v1.62.0
-)
-`)
-	}
+	// Both REST and gRPC generated CLIs import only the standard library: the
+	// gRPC CLI shells out to the `grpcurl` binary rather than linking grpc/
+	// grpcurl as Go modules. So no require block is needed for either transport,
+	// which keeps `go mod tidy` offline-friendly (no phantom downloads).
 	return []byte(`module bawarchi/gen/` + data.Name + `
 
-go ` + ver + `
+go ` + goVersion() + `
 `)
 }

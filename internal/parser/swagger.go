@@ -21,6 +21,8 @@ type swagger2Spec struct {
 	Schemes             []string                    `yaml:"schemes" json:"schemes"`
 	Paths               map[string]oaPathItem       `yaml:"paths" json:"paths"`
 	SecurityDefinitions map[string]oaSecurityScheme `yaml:"securityDefinitions" json:"securityDefinitions"`
+	Definitions         map[string]oaSchema         `yaml:"definitions" json:"definitions"`
+	Parameters          map[string]oaParameter      `yaml:"parameters" json:"parameters"`
 }
 
 // ParseSwagger parses a Swagger 2.0 spec.
@@ -51,13 +53,14 @@ func ParseSwagger(data []byte) (*CLIData, error) {
 
 	// Re-parse paths with Swagger 2.0 parameter handling.
 	// Swagger 2.0 and OpenAPI 3.x share the same path/operation structure
-	// except for how parameters encode their type — handled via getParamInfo.
-	buildCommandsFromSwagger(cli, spec.Paths)
+	// except for how parameters encode their type and bodies.
+	buildCommandsFromSwagger(cli, &spec)
 
 	if len(cli.Commands) == 0 {
 		return nil, fmt.Errorf("spec defines no operations")
 	}
 
+	cli.finalize()
 	return cli, nil
 }
 
@@ -83,10 +86,14 @@ func swagger2BaseURL(spec swagger2Spec) string {
 }
 
 // buildCommandsFromSwagger builds CLI commands from Swagger 2.0 paths.
-// Swagger 2.0 parameters carry `type` directly on the parameter object (oaParameter.Type).
-// OpenAPI 3.x parameters carry type inside schema (oaParameter.Schema.Type).
-// We resolve type via firstNonEmpty(raw.Type, raw.Schema.Type, "string").
-func buildCommandsFromSwagger(cli *CLIData, rawPaths map[string]oaPathItem) {
+// Swagger 2.0 parameters carry `type` directly on the parameter object
+// (oaParameter.Type); body parameters carry an inline or $ref schema. Parameter
+// and body $refs are resolved against #/parameters and #/definitions.
+func buildCommandsFromSwagger(cli *CLIData, spec *swagger2Spec) {
+	rawPaths := spec.Paths
+	definitions := spec.Definitions
+	paramDefs := spec.Parameters
+
 	tagOps := map[string][]pathOp{}
 	var tagOrder []string
 
@@ -151,8 +158,31 @@ func buildCommandsFromSwagger(cli *CLIData, rawPaths map[string]oaPathItem) {
 				Path:        pop.path,
 			}
 			for _, raw := range pop.op.Parameters {
-				typ := firstNonEmpty(raw.Type, raw.Schema.Type, "string")
-				pd := makeParamData(raw.Name, raw.Description, raw.Required, typ)
+				// Resolve parameter-level $ref (#/parameters/Name).
+				if raw.Ref != "" {
+					if resolved, ok := paramDefs[refName(raw.Ref)]; ok {
+						raw = resolved
+					} else {
+						fmt.Fprintf(os.Stderr, "warning: cannot resolve parameter $ref %q; skipping\n", raw.Ref)
+						continue
+					}
+				}
+				if raw.In == "body" {
+					// Swagger 2.0 body param: inline or $ref schema (#/definitions).
+					if raw.Schema != nil {
+						od.BodyParams = append(od.BodyParams, bodyParamsFromSchema(*raw.Schema, definitions)...)
+						if len(od.BodyParams) > 0 {
+							cli.HasBodyParams = true
+						}
+					}
+					continue
+				}
+				typ := firstNonEmpty(raw.Type, "string")
+				itemType := ""
+				if raw.Items != nil {
+					itemType = raw.Items.Type
+				}
+				pd := makeParamData(raw.Name, raw.Description, raw.Required, typ, itemType)
 				switch raw.In {
 				case "path":
 					pd.PathPlaceholder = "{" + raw.Name + "}"
@@ -162,24 +192,6 @@ func buildCommandsFromSwagger(cli *CLIData, rawPaths map[string]oaPathItem) {
 					od.QueryParams = append(od.QueryParams, pd)
 				case "header":
 					od.HeaderParams = append(od.HeaderParams, pd)
-				case "body":
-					// Swagger 2.0: body param — extract properties from inline schema.
-					if raw.Schema.Ref != "" {
-						fmt.Fprintf(os.Stderr, "warning: body parameter uses $ref (%q); body params not yet supported — skipping\n", raw.Schema.Ref)
-						continue
-					}
-					propNames := make([]string, 0, len(raw.Schema.Properties))
-					for n := range raw.Schema.Properties {
-						propNames = append(propNames, n)
-					}
-					sort.Strings(propNames)
-					for _, propName := range propNames {
-						prop := raw.Schema.Properties[propName]
-						od.BodyParams = append(od.BodyParams, makeParamData(propName, prop.Description, false, prop.Type))
-					}
-					if len(od.BodyParams) > 0 {
-						cli.HasBodyParams = true
-					}
 				}
 			}
 			cmd.Operations = append(cmd.Operations, od)

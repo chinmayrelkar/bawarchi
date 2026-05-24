@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// TestLoad_HTTPRejected_AC confirms that load("http://...") returns a non-nil
+// TestLoad_HTTPRejected_AC confirms that Load("http://...") returns a non-nil
 // error containing "https://" and does NOT contain "dial" (no network call).
 func TestLoad_HTTPRejected_AC(t *testing.T) {
-	_, err := load("http://example.com/spec.yaml")
+	_, err := Load("http://example.com/spec.yaml")
 	if err == nil {
 		t.Fatal("expected non-nil error for http:// URL, got nil")
 	}
@@ -46,12 +46,12 @@ func TestLoad_FileAccepted(t *testing.T) {
 		t.Fatalf("failed to create temp spec file: %v", err)
 	}
 
-	data, err := load(tmpFile)
+	data, err := Load(tmpFile)
 	if err != nil {
-		t.Fatalf("load() returned error for a valid file path: %v", err)
+		t.Fatalf("Load() returned error for a valid file path: %v", err)
 	}
 	if len(data) == 0 {
-		t.Fatal("load() returned empty data for a valid file path")
+		t.Fatal("Load() returned empty data for a valid file path")
 	}
 }
 

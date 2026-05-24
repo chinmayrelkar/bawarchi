@@ -12,18 +12,43 @@ import (
 type Entry struct {
 	Name        string    `json:"name"`
 	SpecSource  string    `json:"spec_source"`
-	Transport   string    `json:"transport"` // "rest" or "grpc"
+	Transport   string    `json:"transport"`              // "rest" or "grpc"
 	BaseURL     string    `json:"base_url,omitempty"`     // overridden base URL (e.g. EU endpoint)
 	InstallPath string    `json:"install_path,omitempty"` // path of the symlink created by 'bawarchi install'
 	AddedAt     time.Time `json:"added_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-func Dir() string        { return filepath.Join(home(), ".bawarchi") }
-func SpecDir() string    { return filepath.Join(Dir(), "specs") }
-func SrcDir() string     { return filepath.Join(Dir(), "src") }
-func BinDir() string     { return filepath.Join(Dir(), "bin") }
-func registryFile() string { return filepath.Join(Dir(), "registry.json") }
+func Dir() string                      { return filepath.Join(home(), ".bawarchi") }
+func SpecDir() string                  { return filepath.Join(Dir(), "specs") }
+func SrcDir() string                   { return filepath.Join(Dir(), "src") }
+func BinDir() string                   { return filepath.Join(Dir(), "bin") }
+func registryFile() string             { return filepath.Join(Dir(), "registry.json") }
+func specCacheFile(name string) string { return filepath.Join(SpecDir(), name+".spec") }
+
+// CacheSpec stores the raw spec bytes for a CLI under SpecDir (owner-only) so a
+// later 'bawarchi update' can fall back to it when the original source has
+// moved or the network is unavailable.
+func CacheSpec(name string, data []byte) error {
+	if err := os.MkdirAll(SpecDir(), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(specCacheFile(name), data, 0600)
+}
+
+// CachedSpec returns the cached raw spec bytes for a CLI, if one was stored.
+func CachedSpec(name string) ([]byte, error) {
+	return os.ReadFile(specCacheFile(name))
+}
+
+// RemoveCachedSpec deletes a CLI's cached spec, ignoring a missing file.
+func RemoveCachedSpec(name string) error {
+	err := os.Remove(specCacheFile(name))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
 
 func home() string {
 	h, _ := os.UserHomeDir()
