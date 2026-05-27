@@ -30,11 +30,11 @@ func TestSavePermissions(t *testing.T) {
 	defer restore()
 
 	entry := Entry{
-		Name:      "test-api",
+		Name:       "test-api",
 		SpecSource: "https://example.com/openapi.yaml",
-		Transport: "rest",
-		AddedAt:   time.Now(),
-		UpdatedAt: time.Now(),
+		Transport:  "rest",
+		AddedAt:    time.Now(),
+		UpdatedAt:  time.Now(),
 	}
 	if err := Save([]Entry{entry}); err != nil {
 		t.Fatalf("Save: %v", err)

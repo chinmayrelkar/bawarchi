@@ -225,11 +225,11 @@ message FlagReply { bool ok = 1; }
 	params := cli.Commands[0].Operations[0].InputParams
 
 	want := []struct {
-		name    string
-		goType  string
+		name     string
+		goType   string
 		flagFunc string
-		defLit  string
-		defCmp  string
+		defLit   string
+		defCmp   string
 	}{
 		{"enabled", "bool", "BoolVar", "false", "!= false"},
 		{"label", "string", "StringVar", `""`, `!= ""`},
@@ -342,10 +342,9 @@ message Event   { string payload = 1; }
 	io.Copy(&buf, r)
 	r.Close()
 
-	if parseErr == nil {
-		// A service with only streaming RPCs should return an error (no operations).
-		// The caller should see this; we just check the warning was emitted.
-	}
+	// A service with only streaming RPCs returns an error (no operations); that's
+	// expected here — we just verify the warning was emitted before the error.
+	_ = parseErr
 	stderr := buf.String()
 	if !strings.Contains(stderr, "streaming") {
 		t.Errorf("expected a 'streaming' warning on stderr, got: %q", stderr)

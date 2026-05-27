@@ -42,7 +42,7 @@ func isolatedHome(t *testing.T) {
 	orig := os.Getenv("HOME")
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
-	_ = orig // restored automatically via t.Setenv
+	_ = orig              // restored automatically via t.Setenv
 	_ = registry.BinDir() // ensure lazy init uses the new HOME
 }
 
