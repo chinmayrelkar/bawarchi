@@ -21,7 +21,7 @@ type openAPI3Spec struct {
 	Components struct {
 		SecuritySchemes map[string]oaSecurityScheme `yaml:"securitySchemes" json:"securitySchemes"`
 		Schemas         map[string]oaSchema         `yaml:"schemas" json:"schemas"`
-		Parameters      map[string]oaParameter      `yaml:"parameters" json:"parameters"`
+		Parameters      map[string]yaml.Node        `yaml:"parameters" json:"parameters"`
 	} `yaml:"components" json:"components"`
 }
 
@@ -263,7 +263,7 @@ func authFromSchemes(schemes map[string]oaSecurityScheme, apiName string) (envVa
 func buildCommandsFromOps(cli *CLIData, spec *openAPI3Spec) {
 	paths := spec.Paths
 	schemas := spec.Components.Schemas
-	paramDefs := spec.Components.Parameters
+	paramDefs := resolveParamDefs(spec.Components.Parameters)
 
 	tagOps := map[string][]pathOp{}
 	var tagOrder []string
@@ -374,6 +374,24 @@ func buildCommandsFromOps(cli *CLIData, spec *openAPI3Spec) {
 			cli.Commands = append(cli.Commands, cmd)
 		}
 	}
+}
+
+// resolveParamDefs decodes a raw map of #/parameters or #/components/parameters
+// entries into oaParameter values. Some real-world specs misplace schema-shaped
+// definitions in this section (fields like "required" as an array instead of a
+// bool); such entries can't be decoded as parameters, so they're skipped with a
+// warning instead of failing the whole parse.
+func resolveParamDefs(raw map[string]yaml.Node) map[string]oaParameter {
+	out := make(map[string]oaParameter, len(raw))
+	for name, node := range raw {
+		var p oaParameter
+		if err := node.Decode(&p); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: skipping malformed parameter definition %q: %v\n", name, err)
+			continue
+		}
+		out[name] = p
+	}
+	return out
 }
 
 // refName returns the final path segment of a JSON-Reference string, e.g.

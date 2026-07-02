@@ -43,8 +43,10 @@ type ServerData struct {
 // finalize derives whole-CLI flags (e.g. HasArrayParams) from the assembled
 // command tree. Call once after all commands are built.
 func (c *CLIData) finalize() {
-	for _, cmd := range c.Commands {
-		for _, op := range cmd.Operations {
+	for ci := range c.Commands {
+		for oi := range c.Commands[ci].Operations {
+			op := &c.Commands[ci].Operations[oi]
+			dedupeParamNames(op)
 			groups := [][]ParamData{op.QueryParams, op.BodyParams, op.PathParams, op.HeaderParams, op.InputParams}
 			for _, g := range groups {
 				for _, p := range g {
@@ -52,6 +54,31 @@ func (c *CLIData) finalize() {
 						c.HasArrayParams = true
 					}
 				}
+			}
+		}
+	}
+}
+
+// dedupeParamNames ensures each ParamData's GoVarName and FlagName are unique
+// within a single operation. Path, query, header, and body parameters occupy
+// separate namespaces in a spec but are all declared as flags/locals in the
+// same generated function, so a name reused across categories (e.g. an "id"
+// path param and an "id" body field, which real specs do have) must be
+// disambiguated to avoid duplicate flag registration and Go "redeclared in
+// this block" compile errors.
+func dedupeParamNames(op *OperationData) {
+	seen := map[string]int{}
+	groups := []*[]ParamData{&op.PathParams, &op.QueryParams, &op.HeaderParams, &op.BodyParams, &op.InputParams}
+	for _, g := range groups {
+		for i := range *g {
+			p := &(*g)[i]
+			if n, ok := seen[p.GoVarName]; ok {
+				n++
+				seen[p.GoVarName] = n
+				p.FlagName = fmt.Sprintf("%s-%d", p.FlagName, n)
+				p.GoVarName = fmt.Sprintf("%s%d", p.GoVarName, n)
+			} else {
+				seen[p.GoVarName] = 1
 			}
 		}
 	}
