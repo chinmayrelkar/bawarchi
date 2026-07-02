@@ -1,3 +1,5 @@
+// Package generator renders a parser.CLIData into a self-contained Go
+// main.go for the target transport (REST or gRPC).
 package generator
 
 import (
