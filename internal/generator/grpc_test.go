@@ -201,6 +201,50 @@ func TestGRPCTemplate_WithAuth_AllAuthStrings(t *testing.T) {
 	}
 }
 
+// TestGRPCTemplateWithAuth_HasAuthBlock is an explicit regression test verifying
+// that generateGRPC with a non-empty AuthEnvVar still produces auth-specific code.
+func TestGRPCTemplateWithAuth_HasAuthBlock(t *testing.T) {
+	src, err := generateGRPC(minimalGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	code := string(src)
+
+	if !strings.Contains(code, "Authorization: Bearer") {
+		t.Error("auth path must contain 'Authorization: Bearer'")
+	}
+	if !strings.Contains(code, "is not set") {
+		t.Error("auth path must contain 'is not set'")
+	}
+	if !strings.Contains(code, "os.Getenv(authEnvVar)") {
+		t.Error("auth path must contain 'os.Getenv(authEnvVar)'")
+	}
+}
+
+// TestGRPCTemplate_NoAuth_PrintUsage_HasNoauthNotRequired verifies that when
+// AuthEnvVar is empty the printUsage block contains "@noauth" and does NOT
+// contain "(required)".
+func TestGRPCTemplate_NoAuth_PrintUsage_HasNoauthNotRequired(t *testing.T) {
+	src, err := generateGRPC(noAuthGRPCData())
+	if err != nil {
+		t.Fatalf("generateGRPC failed: %v", err)
+	}
+	code := string(src)
+
+	printUsageIdx := strings.Index(code, "func printUsage()")
+	if printUsageIdx == -1 {
+		t.Fatal("generated code must contain 'func printUsage()'")
+	}
+	afterPrintUsage := code[printUsageIdx:]
+
+	if !strings.Contains(afterPrintUsage, "@noauth") {
+		t.Error("printUsage must contain '@noauth' when AuthEnvVar is empty")
+	}
+	if strings.Contains(afterPrintUsage, "(required)") {
+		t.Error("printUsage must NOT contain '(required)' when AuthEnvVar is empty")
+	}
+}
+
 // TestGRPCTemplate_NoAuth_ServiceHintStillPresent verifies that even with
 // @noauth the @service hint remains unconditionally inside printUsage.
 func TestGRPCTemplate_NoAuth_ServiceHintStillPresent(t *testing.T) {

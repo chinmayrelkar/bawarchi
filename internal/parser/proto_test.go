@@ -47,6 +47,24 @@ message HelloReply { string message = 1; }
 ` + serviceBlock)
 }
 
+// TestParseProto_NoAuth_MidFile verifies that // @noauth placed mid-file
+// (not just on line 1) still causes CLIData.AuthEnvVar to be empty string.
+// This guards against a regex that only matches at the start of file.
+func TestParseProto_NoAuth_MidFile(t *testing.T) {
+	proto := makeProto(`syntax = "proto3";
+package com.example.v1;
+// some comment
+`, `// @noauth
+`)
+	cli, err := ParseProto(proto, "test.proto")
+	if err != nil {
+		t.Fatalf("ParseProto failed: %v", err)
+	}
+	if cli.AuthEnvVar != "" {
+		t.Errorf("AuthEnvVar = %q, want empty string when @noauth is mid-file", cli.AuthEnvVar)
+	}
+}
+
 // TestParseProto_ServiceAnnotation verifies that // @service: com.example.v1
 // causes GRPCService to be 'com.example.v1.Greeter'.
 func TestParseProto_ServiceAnnotation(t *testing.T) {
