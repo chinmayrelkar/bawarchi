@@ -1,3 +1,5 @@
+// Package parser reads OpenAPI 3.x, Swagger 2.0, and .proto specs into the
+// CLIData representation consumed by internal/generator.
 package parser
 
 import (

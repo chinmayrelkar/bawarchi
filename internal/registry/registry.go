@@ -1,3 +1,6 @@
+// Package registry persists metadata about generated CLIs (name, source spec,
+// cached spec bytes, base URL) under ~/.bawarchi so they can be listed,
+// updated, and removed.
 package registry
 
 import (

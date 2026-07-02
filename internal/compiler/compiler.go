@@ -1,3 +1,4 @@
+// Package compiler builds a generated CLI's Go source into a binary.
 package compiler
 
 import (

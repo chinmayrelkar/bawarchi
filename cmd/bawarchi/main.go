@@ -1,3 +1,44 @@
+// Command bawarchi generates standalone CLIs from API specs.
+//
+// Point bawarchi at an OpenAPI 3.x or Swagger 2.0 document (file or HTTPS URL)
+// or a .proto file, and it compiles a self-contained command-line tool for
+// that API:
+//
+//   - REST (OpenAPI 3.x / Swagger 2.0) — typed flags, request bodies, headers,
+//     arrays, $ref resolution, and standardized exit codes.
+//   - gRPC (.proto) — generated CLIs shell out to grpcurl; TLS by default.
+//
+// # Install
+//
+//	go install github.com/chinmayrelkar/bawarchi/cmd/bawarchi@latest
+//
+// Or download a prebuilt binary from the releases page:
+// https://github.com/chinmayrelkar/bawarchi/releases
+//
+// # Quick start
+//
+//	# Generate a CLI from a spec (file or https:// URL)
+//	bawarchi add https://api.example.com/openapi.yaml
+//
+//	# Put it on your PATH
+//	bawarchi install example-api
+//
+//	# Use it — auth and base URL come from environment variables
+//	export EXAMPLE_API__API_KEY=sk-...
+//	example-api --help
+//
+// # Commands
+//
+//	bawarchi add <spec>       Generate, compile, and register a CLI
+//	bawarchi list             List generated CLIs
+//	bawarchi info <name>      Show details for a CLI
+//	bawarchi update <name>    Re-fetch the spec and regenerate
+//	bawarchi install <name>   Symlink a CLI onto your PATH
+//	bawarchi remove <name>    Delete a CLI and its cached spec
+//
+// Generated CLIs read their configuration (auth, base URL, server selection)
+// from environment variables prefixed with the API name. See the README for
+// the full list: https://github.com/chinmayrelkar/bawarchi#readme
 package main
 
 import (
