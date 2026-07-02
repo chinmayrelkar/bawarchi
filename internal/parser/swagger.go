@@ -22,7 +22,7 @@ type swagger2Spec struct {
 	Paths               map[string]oaPathItem       `yaml:"paths" json:"paths"`
 	SecurityDefinitions map[string]oaSecurityScheme `yaml:"securityDefinitions" json:"securityDefinitions"`
 	Definitions         map[string]oaSchema         `yaml:"definitions" json:"definitions"`
-	Parameters          map[string]oaParameter      `yaml:"parameters" json:"parameters"`
+	Parameters          map[string]yaml.Node        `yaml:"parameters" json:"parameters"`
 }
 
 // ParseSwagger parses a Swagger 2.0 spec.
@@ -92,7 +92,7 @@ func swagger2BaseURL(spec swagger2Spec) string {
 func buildCommandsFromSwagger(cli *CLIData, spec *swagger2Spec) {
 	rawPaths := spec.Paths
 	definitions := spec.Definitions
-	paramDefs := spec.Parameters
+	paramDefs := resolveParamDefs(spec.Parameters)
 
 	tagOps := map[string][]pathOp{}
 	var tagOrder []string
