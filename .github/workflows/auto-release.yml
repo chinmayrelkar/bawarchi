@@ -8,6 +8,13 @@ name: Auto Release
 # pushed with the default GITHUB_TOKEN does not trigger other workflows
 # (GitHub's loop-prevention) -- a separate tag-triggered workflow would
 # never fire. release.yml is kept as a manual fallback for hand-pushed tags.
+#
+# The tag bump is a small inline script rather than a third-party action:
+# mathieudutour/github-tag-action force-moved the v0.1.0 tag onto a new
+# commit instead of creating v0.1.1 when only one prior tag existed, which
+# broke GoReleaser (it computed the tag's expected commit before the move,
+# then found the moved tag pointing elsewhere). This script never rewrites
+# an existing tag -- it fails loudly instead.
 on:
   workflow_run:
     workflows: ["CI"]
@@ -27,13 +34,47 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Bump version and push tag
+      - name: Compute and push next tag
         id: tag_version
-        uses: mathieudutour/github-tag-action@v6.2
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          default_bump: patch
-          release_branches: main
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+
+          latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          if [ -z "$latest" ]; then
+            latest="v0.0.0"
+            range="HEAD"
+          else
+            range="${latest}..HEAD"
+          fi
+
+          bump=patch
+          if git log "$range" --pretty=%B | grep -Eiq '^BREAKING CHANGE|^[a-z]+(\(.+\))?!:'; then
+            bump=major
+          elif git log "$range" --pretty=%B | grep -Eiq '^feat(\(.+\))?:'; then
+            bump=minor
+          fi
+
+          ver="${latest#v}"
+          IFS='.' read -r major minor patch <<< "$ver"
+          case "$bump" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+          new_tag="v${major}.${minor}.${patch}"
+
+          if git rev-parse "$new_tag" >/dev/null 2>&1; then
+            echo "::error::tag $new_tag already exists; refusing to move it"
+            exit 1
+          fi
+
+          echo "bumping $latest -> $new_tag ($bump)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$new_tag" -m "$new_tag"
+          git push origin "$new_tag"
+          echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@v5
         with:
