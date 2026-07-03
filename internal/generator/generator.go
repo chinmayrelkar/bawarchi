@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 
 	"github.com/chinmayrelkar/bawarchi/internal/parser"
 )
@@ -66,17 +64,15 @@ func Generate(data *parser.CLIData, outDir string) error {
 	return nil
 }
 
-// goVersion returns the major.minor Go toolchain version (e.g. "1.22") used to
-// run bawarchi, so generated go.mod files stay in sync with the host toolchain.
-func goVersion() string {
-	v := runtime.Version() // e.g. "go1.22.3"
-	v = strings.TrimPrefix(v, "go")
-	parts := strings.SplitN(v, ".", 3)
-	if len(parts) >= 2 {
-		return parts[0] + "." + parts[1]
-	}
-	return v
-}
+// minGoVersion is the go.mod directive stamped into every generated CLI. It
+// intentionally matches bawarchi's own go.mod floor (not runtime.Version(),
+// the Go version bawarchi itself was built with): generated code only uses
+// long-stable standard library features, and a prebuilt bawarchi release
+// binary is typically built with a newer Go than the toolchain available on
+// the machine running `bawarchi add` — stamping the build-time version made
+// `go build` on the generated CLI demand a toolchain download that isn't
+// always possible (e.g. sandboxed/offline machines).
+const minGoVersion = "1.21"
 
 func goMod(data *parser.CLIData) []byte {
 	// Both REST and gRPC generated CLIs import only the standard library: the
@@ -85,6 +81,6 @@ func goMod(data *parser.CLIData) []byte {
 	// which keeps `go mod tidy` offline-friendly (no phantom downloads).
 	return []byte(`module bawarchi/gen/` + data.Name + `
 
-go ` + goVersion() + `
+go ` + minGoVersion + `
 `)
 }
