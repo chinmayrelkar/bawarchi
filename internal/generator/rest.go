@@ -100,6 +100,8 @@ func doRequest(method, rawURL string, body io.Reader, headers map[string]string)
 		os.Exit(1)
 	}
 	{{.AuthSetup}}
+	// JSON is the default body encoding; form-encoded operations override
+	// Content-Type through headers.
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -234,16 +236,53 @@ func op{{$cmd.GoName}}{{.GoName}}(args []string) {
 	}
 {{- end}}
 {{- end}}
+{{- $form := and .FormBody .BodyParams}}
+{{- $formBody := and $form (ne .Method "GET")}}
+{{- if $form}}
+{{- if $formBody}}
+	form := url.Values{}
+{{- else}}
+	// GET carries no body: form fields are sent in the query string.
+	form := q
+{{- end}}
+{{- range .BodyParams}}
+{{- if and .IsArray .FormJSON}}
+	if p{{.GoVarName}} != "" {
+		enc, err := json.Marshal({{listConv .ElemType}}(p{{.GoVarName}}))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error encoding --{{.FlagName}}: %v\n", err)
+			os.Exit(1)
+		}
+		form.Set("{{.Name}}", string(enc))
+	}
+{{- else if .IsArray}}
+	if p{{.GoVarName}} != "" {
+		for _, v := range splitList(p{{.GoVarName}}) {
+			form.Add("{{.Name}}", v)
+		}
+	}
+{{- else}}
+	if p{{.GoVarName}} {{.DefaultCmp}} {
+		form.Set("{{.Name}}", fmt.Sprintf("%v", p{{.GoVarName}}))
+	}
+{{- end}}
+{{- end}}
+{{- end}}
 	u.RawQuery = q.Encode()
-{{- if .HeaderParams}}
+{{- if or .HeaderParams $formBody}}
 	hdrs := map[string]string{}
+{{- if $formBody}}
+	hdrs["Content-Type"] = "application/x-www-form-urlencoded"
+{{- end}}
 {{- range .HeaderParams}}
 	if p{{.GoVarName}} != "" {
 		hdrs["{{.Name}}"] = p{{.GoVarName}}
 	}
 {{- end}}
 {{- end}}
-{{- if .BodyParams}}
+{{- if $formBody}}
+	doRequest("{{.Method}}", u.String(), strings.NewReader(form.Encode()), hdrs)
+{{- else if and .BodyParams (not .FormBody)}}
 	reqBody := map[string]interface{}{}
 {{- range .BodyParams}}
 {{- if .IsArray}}

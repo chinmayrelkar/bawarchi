@@ -157,6 +157,8 @@ func buildCommandsFromSwagger(cli *CLIData, spec *swagger2Spec) {
 				Method:      pop.method,
 				Path:        pop.path,
 			}
+			var formParams []ParamData
+			hasFileParam := false
 			for _, raw := range pop.op.Parameters {
 				// Resolve parameter-level $ref (#/parameters/Name).
 				if raw.Ref != "" {
@@ -182,6 +184,17 @@ func buildCommandsFromSwagger(cli *CLIData, spec *swagger2Spec) {
 				if raw.Items != nil {
 					itemType = raw.Items.Type
 				}
+				if raw.In == "formData" {
+					if typ == "file" {
+						hasFileParam = true
+						continue
+					}
+					// Swagger 2.0 arrays default to collectionFormat csv, a single
+					// comma-joined value; only "multi" means repeated form keys.
+					if typ == "array" && raw.CollectionFormat != "multi" {
+						typ = "string"
+					}
+				}
 				pd := makeParamData(raw.Name, raw.Description, raw.Required, typ, itemType)
 				switch raw.In {
 				case "path":
@@ -192,7 +205,18 @@ func buildCommandsFromSwagger(cli *CLIData, spec *swagger2Spec) {
 					od.QueryParams = append(od.QueryParams, pd)
 				case "header":
 					od.HeaderParams = append(od.HeaderParams, pd)
+				case "formData":
+					formParams = append(formParams, pd)
 				}
+			}
+			// Swagger 2.0 formData params become a form-urlencoded body. A
+			// type: file param needs multipart/form-data, which is not supported,
+			// so the whole form is skipped with a warning rather than sent with
+			// the wrong encoding.
+			if hasFileParam {
+				fmt.Fprintf(os.Stderr, "warning: %s: formData file uploads (multipart/form-data) are not supported; form fields will not be available as flags\n", opName)
+			} else if len(formParams) > 0 && len(od.BodyParams) == 0 {
+				od.BodyParams, od.FormBody = formParams, true
 			}
 			cmd.Operations = append(cmd.Operations, od)
 		}

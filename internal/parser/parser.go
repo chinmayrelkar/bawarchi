@@ -104,7 +104,8 @@ type OperationData struct {
 	PathParams   []ParamData
 	QueryParams  []ParamData
 	HeaderParams []ParamData // HTTP header fields (in: header)
-	BodyParams   []ParamData // JSON request body fields (POST/PUT/PATCH)
+	BodyParams   []ParamData // request body fields (POST/PUT/PATCH); JSON unless FormBody
+	FormBody     bool        // true: BodyParams are sent as application/x-www-form-urlencoded
 
 	// gRPC
 	GRPCService string
@@ -125,6 +126,7 @@ type ParamData struct {
 	Required        bool
 	IsArray         bool   // true: flag is a comma-separated list expanded into repeated/array values
 	ElemType        string // array element Go type: string | int | float64 | bool
+	FormJSON        bool   // form body field whose encoding contentType is application/json (array sent as JSON text)
 	PathPlaceholder string // "{paramname}" for path substitution
 }
 
