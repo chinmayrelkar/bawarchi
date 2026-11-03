@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chinmayrelkar/bawarchi/internal/parser"
 )
@@ -97,17 +98,30 @@ func TestGenerateREST_FormBody_EndToEnd(t *testing.T) {
 		t.Skip("go toolchain not on PATH")
 	}
 
-	var gotCT, gotQuery, gotBody string
-	var gotForm url.Values
+	// The handler runs on the server's goroutine; hand each request's
+	// captured data to the test through a channel so reads are synchronised.
+	type captured struct {
+		ct, query, body string
+		form            url.Values
+	}
+	reqs := make(chan captured, 8)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotCT = r.Header.Get("Content-Type")
-		gotQuery = r.URL.RawQuery
 		body, _ := io.ReadAll(r.Body)
-		gotBody = string(body)
-		gotForm, _ = url.ParseQuery(gotBody)
+		form, _ := url.ParseQuery(string(body))
+		reqs <- captured{ct: r.Header.Get("Content-Type"), query: r.URL.RawQuery, body: string(body), form: form}
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{"result":"success"}`)
 	}))
+	next := func() captured {
+		t.Helper()
+		select {
+		case c := <-reqs:
+			return c
+		case <-time.After(10 * time.Second):
+			t.Fatal("server received no request")
+			return captured{}
+		}
+	}
 	defer srv.Close()
 
 	dir := t.TempDir()
@@ -129,6 +143,8 @@ func TestGenerateREST_FormBody_EndToEnd(t *testing.T) {
 	if out, err := run.CombinedOutput(); err != nil {
 		t.Fatalf("running generated CLI: %v\n%s", err, out)
 	}
+	c := next()
+	gotCT, gotQuery, gotForm := c.ct, c.query, c.form
 
 	if gotCT != "application/x-www-form-urlencoded" {
 		t.Errorf("Content-Type = %q, want application/x-www-form-urlencoded", gotCT)
@@ -155,6 +171,8 @@ func TestGenerateREST_FormBody_EndToEnd(t *testing.T) {
 	if out, err := run.CombinedOutput(); err != nil {
 		t.Fatalf("running generated CLI (GET): %v\n%s", err, out)
 	}
+	c = next()
+	gotCT, gotQuery, gotBody := c.ct, c.query, c.body
 	if q, _ := url.ParseQuery(gotQuery); q.Get("group_ids") != "[3,4]" {
 		t.Errorf("GET form field must be in the query string, got query %q", gotQuery)
 	}
