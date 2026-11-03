@@ -22,6 +22,7 @@ type openAPI3Spec struct {
 		SecuritySchemes map[string]oaSecurityScheme `yaml:"securitySchemes" json:"securitySchemes"`
 		Schemas         map[string]oaSchema         `yaml:"schemas" json:"schemas"`
 		Parameters      map[string]yaml.Node        `yaml:"parameters" json:"parameters"`
+		RequestBodies   map[string]oaRequestBody    `yaml:"requestBodies" json:"requestBodies"`
 	} `yaml:"components" json:"components"`
 }
 
@@ -52,15 +53,30 @@ type oaOperation struct {
 	RequestBody *oaRequestBody `yaml:"requestBody" json:"requestBody"`
 }
 
-// oaRequestBody represents an OpenAPI 3.x requestBody object.
+// oaRequestBody represents an OpenAPI 3.x requestBody object, or a $ref to
+// one in components/requestBodies.
 type oaRequestBody struct {
+	Ref      string                 `yaml:"$ref" json:"$ref"`
 	Required bool                   `yaml:"required" json:"required"`
 	Content  map[string]oaMediaType `yaml:"content" json:"content"`
 }
 
 type oaMediaType struct {
-	Schema oaSchema `yaml:"schema" json:"schema"`
+	Schema   oaSchema              `yaml:"schema" json:"schema"`
+	Encoding map[string]oaEncoding `yaml:"encoding" json:"encoding"`
 }
+
+// oaEncoding is a per-property encoding entry of a form media type. Only
+// contentType is used: application/json means the field value is JSON text.
+type oaEncoding struct {
+	ContentType string `yaml:"contentType" json:"contentType"`
+}
+
+// Request body media types the REST generator can encode.
+const (
+	mediaJSON = "application/json"
+	mediaForm = "application/x-www-form-urlencoded"
+)
 
 // oaSchema covers inline object schemas, arrays, and $ref. It is shared by
 // requestBody media types, parameter schemas, and components/schemas entries.
@@ -95,15 +111,16 @@ type oaItems struct {
 // In OpenAPI 3.x, type lives inside Schema. A parameter may also be a $ref
 // (OpenAPI components/parameters or Swagger #/parameters), captured by Ref.
 type oaParameter struct {
-	Ref         string    `yaml:"$ref" json:"$ref"`
-	Name        string    `yaml:"name" json:"name"`
-	In          string    `yaml:"in" json:"in"`
-	Description string    `yaml:"description" json:"description"`
-	Required    bool      `yaml:"required" json:"required"`
-	Type        string    `yaml:"type" json:"type"`
-	Format      string    `yaml:"format" json:"format"`
-	Items       *oaItems  `yaml:"items" json:"items"`   // Swagger 2.0 array element type
-	Schema      *oaSchema `yaml:"schema" json:"schema"` // OpenAPI 3.x / Swagger body schema
+	Ref              string    `yaml:"$ref" json:"$ref"`
+	Name             string    `yaml:"name" json:"name"`
+	In               string    `yaml:"in" json:"in"`
+	Description      string    `yaml:"description" json:"description"`
+	Required         bool      `yaml:"required" json:"required"`
+	Type             string    `yaml:"type" json:"type"`
+	Format           string    `yaml:"format" json:"format"`
+	Items            *oaItems  `yaml:"items" json:"items"`                       // Swagger 2.0 array element type
+	CollectionFormat string    `yaml:"collectionFormat" json:"collectionFormat"` // Swagger 2.0 array serialization (csv default, multi = repeated)
+	Schema           *oaSchema `yaml:"schema" json:"schema"`                     // OpenAPI 3.x / Swagger body schema
 }
 
 type oaSecurityScheme struct {
@@ -358,12 +375,21 @@ func buildCommandsFromOps(cli *CLIData, spec *openAPI3Spec) {
 					od.HeaderParams = append(od.HeaderParams, pd)
 				}
 			}
-			// OpenAPI 3.x requestBody: extract application/json properties,
-			// resolving a top-level $ref against components/schemas.
-			if pop.op.RequestBody != nil {
-				if mt, ok := pop.op.RequestBody.Content["application/json"]; ok {
-					od.BodyParams = bodyParamsFromSchema(mt.Schema, schemas)
-					if len(od.BodyParams) > 0 {
+			// OpenAPI 3.x requestBody: extract application/json (preferred) or
+			// application/x-www-form-urlencoded properties, resolving $refs
+			// against components/requestBodies and components/schemas.
+			if rb := pop.op.RequestBody; rb != nil {
+				if rb.Ref != "" {
+					if resolved, ok := spec.Components.RequestBodies[refName(rb.Ref)]; ok {
+						rb = &resolved
+					} else {
+						fmt.Fprintf(os.Stderr, "warning: cannot resolve requestBody $ref %q; skipping body fields\n", rb.Ref)
+						rb = nil
+					}
+				}
+				if rb != nil {
+					od.BodyParams, od.FormBody = bodyParamsFromContent(rb.Content, schemas, opName)
+					if len(od.BodyParams) > 0 && !od.FormBody {
 						cli.HasBodyParams = true
 					}
 				}
@@ -399,6 +425,35 @@ func resolveParamDefs(raw map[string]yaml.Node) map[string]oaParameter {
 func refName(ref string) string {
 	parts := strings.Split(ref, "/")
 	return parts[len(parts)-1]
+}
+
+// bodyParamsFromContent picks the request body media type to expose as flags.
+// application/json wins when present (unchanged behaviour); otherwise
+// application/x-www-form-urlencoded is used and form reports true. Any other
+// media type (e.g. multipart/form-data file uploads) is not supported and is
+// reported on stderr rather than silently dropped.
+func bodyParamsFromContent(content map[string]oaMediaType, schemas map[string]oaSchema, opName string) (params []ParamData, form bool) {
+	if mt, ok := content[mediaJSON]; ok {
+		return bodyParamsFromSchema(mt.Schema, schemas), false
+	}
+	if mt, ok := content[mediaForm]; ok {
+		params = bodyParamsFromSchema(mt.Schema, schemas)
+		for i := range params {
+			if enc, ok := mt.Encoding[params[i].Name]; ok && strings.HasPrefix(enc.ContentType, mediaJSON) {
+				params[i].FormJSON = true
+			}
+		}
+		return params, len(params) > 0
+	}
+	if len(content) > 0 {
+		types := make([]string, 0, len(content))
+		for t := range content {
+			types = append(types, t)
+		}
+		sort.Strings(types)
+		fmt.Fprintf(os.Stderr, "warning: %s: request body media type %s is not supported; body fields will not be available as flags\n", opName, strings.Join(types, ", "))
+	}
+	return nil, false
 }
 
 // bodyParamsFromSchema flattens an object schema into body flag params,
